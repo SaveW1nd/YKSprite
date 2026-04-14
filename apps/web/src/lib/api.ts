@@ -23,6 +23,57 @@ export type SessionState = {
   mode: 'headless' | 'visible-login' | null;
 };
 
+export type RuntimeStatus = {
+  connected: boolean;
+  loggedIn: boolean;
+  courseTitle: string | null;
+  lessonState: 'idle' | 'in_class' | 'waiting' | 'ended';
+  checkinAvailable: boolean;
+  questionDetected: boolean;
+  currentUrl: string | null;
+  pageTitle: string | null;
+  lastScannedAt: string | null;
+};
+
+export type QuestionOption = {
+  key: string;
+  value: string;
+};
+
+export type CurrentQuestion = {
+  id: number;
+  questionId: string;
+  courseTitle: string | null;
+  type: string;
+  body: string;
+  options: QuestionOption[];
+  slideIndex: number | null;
+  source: 'dom' | 'image' | 'mixed';
+  detectedAt: string;
+};
+
+export type TaskRecord = {
+  id: string;
+  type: string;
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+  startedAt: string;
+  finishedAt: string | null;
+  lastError: string | null;
+  attempt: number;
+  payloadSummary: string;
+  sourceRef: string | null;
+};
+
+export type EventRecord = {
+  id: string;
+  level: 'info' | 'alert' | 'live';
+  title: string;
+  description: string;
+  time: string;
+  taskId?: string | null;
+  eventType?: string | null;
+};
+
 export async function fetchHealth(): Promise<HealthResponse> {
   const response = await fetch('/health');
   if (!response.ok) {
@@ -45,6 +96,38 @@ const readSessionResponse = async (response: Response): Promise<SessionState> =>
   }
 
   return response.json() as Promise<SessionState>;
+};
+
+const readRuntimeResponse = async (response: Response): Promise<RuntimeStatus> => {
+  if (!response.ok) {
+    throw new Error(`Runtime request failed with status ${response.status}`);
+  }
+
+  return response.json() as Promise<RuntimeStatus>;
+};
+
+const readQuestionResponse = async (response: Response): Promise<CurrentQuestion | null> => {
+  if (!response.ok) {
+    throw new Error(`Question request failed with status ${response.status}`);
+  }
+
+  return response.json() as Promise<CurrentQuestion | null>;
+};
+
+const readTasksResponse = async (response: Response): Promise<TaskRecord[]> => {
+  if (!response.ok) {
+    throw new Error(`Tasks request failed with status ${response.status}`);
+  }
+
+  return response.json() as Promise<TaskRecord[]>;
+};
+
+const readEventsResponse = async (response: Response): Promise<EventRecord[]> => {
+  if (!response.ok) {
+    throw new Error(`Events request failed with status ${response.status}`);
+  }
+
+  return response.json() as Promise<EventRecord[]>;
 };
 
 export async function fetchBrowserStatus(): Promise<BrowserStatus> {
@@ -83,4 +166,24 @@ export async function saveSession(): Promise<SessionState> {
     method: 'POST'
   });
   return readSessionResponse(response);
+}
+
+export async function fetchRuntimeStatus(): Promise<RuntimeStatus> {
+  const response = await fetch('/runtime/status');
+  return readRuntimeResponse(response);
+}
+
+export async function fetchCurrentQuestion(): Promise<CurrentQuestion | null> {
+  const response = await fetch('/runtime/questions/current');
+  return readQuestionResponse(response);
+}
+
+export async function fetchTasks(): Promise<TaskRecord[]> {
+  const response = await fetch('/tasks');
+  return readTasksResponse(response);
+}
+
+export async function fetchEvents(): Promise<EventRecord[]> {
+  const response = await fetch('/events');
+  return readEventsResponse(response);
 }
