@@ -6,7 +6,7 @@
     "lint": "pnpm -r --if-present lint",
     "test": "vitest run",
     "build": "pnpm -r --if-present build",
-    "package:desktop": "pnpm --filter @yksprite/desktop package",
+    "package:desktop": "pnpm --filter @yksprite/desktop --fail-if-no-match package",
     "docker:build": "docker build -f docker/Dockerfile -t yksprite:dev .",
     "docker:smoke": "docker run --rm -p 3000:3000 yksprite:dev"
   },
