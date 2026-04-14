@@ -16,17 +16,21 @@ import {
   fetchCurrentQuestion,
   fetchEvents,
   fetchHealth,
+  fetchRuntimeMonitor,
   fetchRuntimeStatus,
   fetchSessionState,
   fetchTasks,
   saveSession,
   startBrowser,
   startLoginSession,
+  startRuntimeMonitor,
+  stopRuntimeMonitor,
   stopBrowser,
   type BrowserStatus,
   type CurrentQuestion,
   type EventRecord,
   type HealthResponse,
+  type RuntimeMonitorStatus,
   type RuntimeStatus,
   type SessionState,
   type TaskRecord
@@ -73,6 +77,16 @@ const runtimeStatus = ref<RuntimeStatus>({
   currentUrl: null,
   pageTitle: null,
   lastScannedAt: null
+});
+
+const monitor = ref<RuntimeMonitorStatus>({
+  enabled: false,
+  phase: 'idle',
+  currentCourse: null,
+  currentLessonId: null,
+  lastCheckedAt: null,
+  lastTransitionAt: null,
+  lastError: null
 });
 
 const currentQuestion = ref<CurrentQuestion | null>(null);
@@ -130,6 +144,14 @@ const lessonStateLabel = computed(() => {
 const runtimeSummary = computed(() => {
   if (!runtimeStatus.value.connected) return '浏览器尚未附着页面';
   return `${runtimeStatus.value.courseTitle ?? '未识别课程'} · ${lessonStateLabel.value}`;
+});
+
+const monitorSummary = computed(() => {
+  if (monitor.value.lastError) return monitor.value.lastError;
+  if (monitor.value.currentCourse) return monitor.value.currentCourse;
+  if (monitor.value.phase === 'home_polling') return '正在首页轮询进行中的课堂';
+  if (monitor.value.phase === 'idle') return '监控未启动';
+  return '等待下一轮监控';
 });
 
 const browserToneClass = computed(() => {
@@ -198,6 +220,22 @@ const syncRuntime = async () => {
   }
 };
 
+const syncMonitor = async () => {
+  try {
+    monitor.value = await fetchRuntimeMonitor();
+  } catch {
+    monitor.value = {
+      enabled: false,
+      phase: 'idle',
+      currentCourse: null,
+      currentLessonId: null,
+      lastCheckedAt: null,
+      lastTransitionAt: null,
+      lastError: '无法获取监控状态'
+    };
+  }
+};
+
 const syncCurrentQuestion = async () => {
   try {
     currentQuestion.value = await fetchCurrentQuestion();
@@ -223,7 +261,7 @@ const syncEvents = async () => {
 };
 
 const syncAll = async () => {
-  await Promise.all([syncHealth(), syncBrowser(), syncSession(), syncRuntime(), syncCurrentQuestion(), syncTasks(), syncEvents()]);
+  await Promise.all([syncHealth(), syncBrowser(), syncSession(), syncRuntime(), syncMonitor(), syncCurrentQuestion(), syncTasks(), syncEvents()]);
 };
 
 const resetRefreshTimer = () => {
@@ -273,6 +311,16 @@ const handleSaveSession = async () => {
 };
 
 const handleRefreshStatus = async () => {
+  await syncAll();
+};
+
+const handleStartMonitor = async () => {
+  monitor.value = await startRuntimeMonitor();
+  await syncAll();
+};
+
+const handleStopMonitor = async () => {
+  monitor.value = await stopRuntimeMonitor();
   await syncAll();
 };
 
@@ -606,6 +654,19 @@ const healthToneClass = (tone: HealthItem['tone']) => {
                   {{ runtimeStatus.checkinAvailable ? '检测到可签到入口' : '当前未发现签到入口' }} ·
                   {{ runtimeStatus.questionDetected ? '已检测到题目' : '当前未检测到题目' }}
                 </p>
+              </article>
+              <article class="rounded-[22px] bg-slate-50 px-4 py-4 ring-1 ring-slate-200">
+                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-shell-700">自动监控</p>
+                <strong class="mt-3 block font-display text-lg font-semibold tracking-tight text-shell-900">{{ monitor.phase }}</strong>
+                <p class="mt-2 text-sm text-shell-700">{{ monitorSummary }}</p>
+                <div class="mt-4 flex gap-3">
+                  <button class="inline-flex items-center justify-center gap-2 rounded-2xl bg-shell-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-shell-700" @click="handleStartMonitor">
+                    启动自动监控
+                  </button>
+                  <button class="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-shell-900 transition hover:border-shell-300" @click="handleStopMonitor">
+                    停止自动监控
+                  </button>
+                </div>
               </article>
               <article v-for="item in healthCards" :key="item.label" :class="healthToneClass(item.tone)" class="rounded-[22px] px-4 py-4">
                 <p class="text-xs font-semibold uppercase tracking-[0.18em]">{{ item.label }}</p>

@@ -119,6 +119,51 @@ const createFetchMock = () =>
       };
     }
 
+    if (input === '/runtime/monitor') {
+      return {
+        ok: true,
+        json: async () => ({
+          enabled: true,
+          phase: 'home_polling',
+          currentCourse: null,
+          currentLessonId: null,
+          lastCheckedAt: '2026-04-14T00:00:00.000Z',
+          lastTransitionAt: '2026-04-14T00:00:00.000Z',
+          lastError: null
+        })
+      };
+    }
+
+    if (input === '/runtime/monitor/start') {
+      return {
+        ok: true,
+        json: async () => ({
+          enabled: true,
+          phase: 'class_monitoring',
+          currentCourse: '高等数学',
+          currentLessonId: 'lesson-1',
+          lastCheckedAt: '2026-04-14T00:00:05.000Z',
+          lastTransitionAt: '2026-04-14T00:00:05.000Z',
+          lastError: null
+        })
+      };
+    }
+
+    if (input === '/runtime/monitor/stop') {
+      return {
+        ok: true,
+        json: async () => ({
+          enabled: false,
+          phase: 'idle',
+          currentCourse: null,
+          currentLessonId: null,
+          lastCheckedAt: '2026-04-14T00:00:05.000Z',
+          lastTransitionAt: '2026-04-14T00:00:10.000Z',
+          lastError: null
+        })
+      };
+    }
+
     if (input === '/runtime/questions/current') {
       return {
         ok: true,
@@ -192,6 +237,8 @@ describe('App shell', () => {
     expect(wrapper.text()).toContain('已保存会话');
     expect(wrapper.text()).toContain('Task runtime_scan started');
     expect(wrapper.text()).toContain('高等数学 · 课堂中');
+    expect(wrapper.text()).toContain('自动监控');
+    expect(wrapper.text()).toContain('home_polling');
   });
 
   it('calls browser control endpoints from the action buttons', async () => {
@@ -207,12 +254,16 @@ describe('App shell', () => {
     const refreshButton = () => buttons().find((button) => button.text().includes('刷新状态'));
     const loginButton = () => buttons().find((button) => button.text().includes('扫码登录'));
     const saveSessionButton = () => buttons().find((button) => button.text().includes('保存当前会话'));
+    const startMonitorButton = () => buttons().find((button) => button.text().includes('启动自动监控'));
+    const stopMonitorButton = () => buttons().find((button) => button.text().includes('停止自动监控'));
 
     expect(startButton()).toBeTruthy();
     expect(stopButton()).toBeTruthy();
     expect(refreshButton()).toBeTruthy();
     expect(loginButton()).toBeTruthy();
     expect(saveSessionButton()).toBeTruthy();
+    expect(startMonitorButton()).toBeTruthy();
+    expect(stopMonitorButton()).toBeTruthy();
 
     await startButton()!.trigger('click');
     await flushPromises();
@@ -221,6 +272,10 @@ describe('App shell', () => {
     await saveSessionButton()!.trigger('click');
     await flushPromises();
     await stopButton()!.trigger('click');
+    await flushPromises();
+    await startMonitorButton()!.trigger('click');
+    await flushPromises();
+    await stopMonitorButton()!.trigger('click');
     await flushPromises();
     await refreshButton()!.trigger('click');
 
@@ -231,6 +286,9 @@ describe('App shell', () => {
     expect(fetchMock).toHaveBeenCalledWith('/browser');
     expect(fetchMock).toHaveBeenCalledWith('/browser/session');
     expect(fetchMock).toHaveBeenCalledWith('/runtime/status');
+    expect(fetchMock).toHaveBeenCalledWith('/runtime/monitor');
+    expect(fetchMock).toHaveBeenCalledWith('/runtime/monitor/start', expect.any(Object));
+    expect(fetchMock).toHaveBeenCalledWith('/runtime/monitor/stop', expect.any(Object));
     expect(fetchMock).toHaveBeenCalledWith('/runtime/questions/current');
     expect(fetchMock).toHaveBeenCalledWith('/tasks');
     expect(fetchMock).toHaveBeenCalledWith('/events');

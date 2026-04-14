@@ -35,6 +35,16 @@ export type RuntimeStatus = {
   lastScannedAt: string | null;
 };
 
+export type RuntimeMonitorStatus = {
+  enabled: boolean;
+  phase: 'idle' | 'home_polling' | 'class_monitoring' | 'returning_home' | 'error_backoff';
+  currentCourse: string | null;
+  currentLessonId: string | null;
+  lastCheckedAt: string | null;
+  lastTransitionAt: string | null;
+  lastError: string | null;
+};
+
 export type QuestionOption = {
   key: string;
   value: string;
@@ -114,6 +124,14 @@ const readQuestionResponse = async (response: Response): Promise<CurrentQuestion
   return response.json() as Promise<CurrentQuestion | null>;
 };
 
+const readMonitorResponse = async (response: Response): Promise<RuntimeMonitorStatus> => {
+  if (!response.ok) {
+    throw new Error(`Monitor request failed with status ${response.status}`);
+  }
+
+  return response.json() as Promise<RuntimeMonitorStatus>;
+};
+
 const readTasksResponse = async (response: Response): Promise<TaskRecord[]> => {
   if (!response.ok) {
     throw new Error(`Tasks request failed with status ${response.status}`);
@@ -171,6 +189,25 @@ export async function saveSession(): Promise<SessionState> {
 export async function fetchRuntimeStatus(): Promise<RuntimeStatus> {
   const response = await fetch('/runtime/status');
   return readRuntimeResponse(response);
+}
+
+export async function fetchRuntimeMonitor(): Promise<RuntimeMonitorStatus> {
+  const response = await fetch('/runtime/monitor');
+  return readMonitorResponse(response);
+}
+
+export async function startRuntimeMonitor(): Promise<RuntimeMonitorStatus> {
+  const response = await fetch('/runtime/monitor/start', {
+    method: 'POST'
+  });
+  return readMonitorResponse(response);
+}
+
+export async function stopRuntimeMonitor(): Promise<RuntimeMonitorStatus> {
+  const response = await fetch('/runtime/monitor/stop', {
+    method: 'POST'
+  });
+  return readMonitorResponse(response);
 }
 
 export async function fetchCurrentQuestion(): Promise<CurrentQuestion | null> {
