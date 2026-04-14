@@ -1,14 +1,10 @@
 appId: com.yksprite.desktop
-productName: YKSprite Desktop
+productName: YKSprite
 directories:
   output: dist-electron
 files:
-  - dist-electron/**
-  - package.json
-asar: false
-mac:
-  target:
-    - dmg
+  - dist/**/*
+  - dist-electron/**/*
 win:
   target:
     - nsis
