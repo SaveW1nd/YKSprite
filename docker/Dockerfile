@@ -10,4 +10,4 @@ FROM node:22-alpine AS runtime
 WORKDIR /app
 COPY --from=base /app ./
 EXPOSE 3000
-CMD ["pnpm", "--filter", "@yksprite/service", "start"]
+CMD ["node", "apps/service/dist/index.js"]
