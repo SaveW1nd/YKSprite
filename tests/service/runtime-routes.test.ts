@@ -1,0 +1,129 @@
+import { describe, expect, it } from 'vitest';
+import { buildServiceApp } from '../../apps/service/src/app';
+import type { BrowserController, PageSnapshot, SessionState } from '../../apps/service/src/browser/browser-controller';
+
+const snapshot: PageSnapshot = {
+  currentUrl: 'https://www.yuketang.cn/lesson/123',
+  pageTitle: '高等数学 - 雨课堂',
+  html: `
+    <main>
+      <h1>高等数学</h1>
+      <div>课堂 · 上课中</div>
+      <button>立即签到</button>
+      <section data-question-id="q-1">
+        <div class="question-body">函数 f(x) 的导数是？</div>
+        <div>单选题</div>
+        <ul>
+          <li data-option-key="A">x</li>
+          <li data-option-key="B">2x</li>
+        </ul>
+      </section>
+    </main>
+  `
+};
+
+const sessionState: SessionState = {
+  hasSession: true,
+  savedAt: '2026-04-14T00:00:00.000Z',
+  origin: 'www.yuketang.cn',
+  cookieCount: 1,
+  currentUrl: snapshot.currentUrl,
+  pageTitle: snapshot.pageTitle,
+  mode: 'headless'
+};
+
+const createBrowserController = (): BrowserController => ({
+  getStatus: () => ({
+    status: 'running',
+    engine: 'chromium',
+    headless: true,
+    mode: 'headless',
+    startedAt: '2026-04-14T00:00:00.000Z',
+    pageUrl: snapshot.currentUrl,
+    lastError: null
+  }),
+  start: async () => ({
+    status: 'running',
+    engine: 'chromium',
+    headless: true,
+    mode: 'headless',
+    startedAt: '2026-04-14T00:00:00.000Z',
+    pageUrl: snapshot.currentUrl,
+    lastError: null
+  }),
+  startLogin: async () => ({
+    status: 'running',
+    engine: 'chromium',
+    headless: true,
+    mode: 'visible-login',
+    startedAt: '2026-04-14T00:00:00.000Z',
+    pageUrl: snapshot.currentUrl,
+    lastError: null
+  }),
+  stop: async () => ({
+    status: 'idle',
+    engine: 'chromium',
+    headless: true,
+    mode: null,
+    startedAt: null,
+    pageUrl: null,
+    lastError: null
+  }),
+  getSessionState: async () => sessionState,
+  saveSession: async () => sessionState,
+  navigate: async (url: string) => ({
+    status: 'running',
+    engine: 'chromium',
+    headless: true,
+    mode: 'headless',
+    startedAt: '2026-04-14T00:00:00.000Z',
+    pageUrl: url,
+    lastError: null
+  }),
+  inspectPage: async () => snapshot
+});
+
+describe('runtime routes', () => {
+  it('returns runtime status and structured questions', async () => {
+    const app = buildServiceApp({
+      browserController: createBrowserController()
+    });
+
+    try {
+      const statusResponse = await app.inject({ method: 'GET', url: '/runtime/status' });
+      const questionsResponse = await app.inject({ method: 'GET', url: '/runtime/questions' });
+      const currentResponse = await app.inject({ method: 'GET', url: '/runtime/questions/current' });
+      const scanResponse = await app.inject({ method: 'POST', url: '/runtime/scan' });
+
+      expect(statusResponse.statusCode).toBe(200);
+      expect(statusResponse.json()).toMatchObject({
+        loggedIn: true,
+        courseTitle: '高等数学',
+        lessonState: 'in_class',
+        checkinAvailable: true,
+        questionDetected: true
+      });
+
+      expect(questionsResponse.statusCode).toBe(200);
+      expect(questionsResponse.json()).toHaveLength(1);
+
+      expect(currentResponse.statusCode).toBe(200);
+      expect(currentResponse.json()).toMatchObject({
+        questionId: 'q-1',
+        body: '函数 f(x) 的导数是？'
+      });
+
+      expect(scanResponse.statusCode).toBe(200);
+      expect(scanResponse.json()).toMatchObject({
+        status: {
+          lessonState: 'in_class'
+        },
+        currentQuestion: {
+          questionId: 'q-1'
+        }
+      });
+    } finally {
+      await app.close();
+    }
+  });
+});

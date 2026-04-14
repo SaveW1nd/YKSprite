@@ -1,0 +1,102 @@
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+
+export const schemaMetaTable = sqliteTable('schema_meta', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull()
+});
+
+export const sessionsTable = sqliteTable('sessions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  source: text('source').notNull(),
+  origin: text('origin').notNull(),
+  cookiesJson: text('cookies_json').notNull(),
+  cookieCount: integer('cookie_count').notNull(),
+  savedAt: text('saved_at').notNull(),
+  currentUrl: text('current_url'),
+  pageTitle: text('page_title'),
+  mode: text('mode'),
+  isActive: integer('is_active', { mode: 'boolean' }).notNull().default(false)
+});
+
+export const tasksTable = sqliteTable('tasks', {
+  id: text('id').primaryKey(),
+  type: text('type').notNull(),
+  status: text('status').notNull(),
+  startedAt: text('started_at').notNull(),
+  finishedAt: text('finished_at'),
+  lastError: text('last_error'),
+  attempt: integer('attempt').notNull(),
+  payloadSummary: text('payload_summary').notNull(),
+  sourceRef: text('source_ref')
+});
+
+export const eventsTable = sqliteTable('events', {
+  id: text('id').primaryKey(),
+  level: text('level').notNull(),
+  title: text('title').notNull(),
+  description: text('description').notNull(),
+  time: text('time').notNull(),
+  taskId: text('task_id'),
+  eventType: text('event_type')
+});
+
+export const runtimeSnapshotsTable = sqliteTable('runtime_snapshots', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  connected: integer('connected', { mode: 'boolean' }).notNull(),
+  loggedIn: integer('logged_in', { mode: 'boolean' }).notNull(),
+  courseTitle: text('course_title'),
+  lessonState: text('lesson_state').notNull(),
+  checkinAvailable: integer('checkin_available', { mode: 'boolean' }).notNull(),
+  questionDetected: integer('question_detected', { mode: 'boolean' }).notNull(),
+  currentUrl: text('current_url'),
+  pageTitle: text('page_title'),
+  scannedAt: text('scanned_at').notNull()
+});
+
+export const questionsTable = sqliteTable('questions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  questionId: text('question_id').notNull(),
+  courseTitle: text('course_title'),
+  type: text('type').notNull(),
+  body: text('body').notNull(),
+  slideIndex: integer('slide_index'),
+  source: text('source').notNull(),
+  detectedAt: text('detected_at').notNull(),
+  runtimeSnapshotId: integer('runtime_snapshot_id').notNull()
+});
+
+export const questionOptionsTable = sqliteTable('question_options', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  questionRowId: integer('question_row_id').notNull(),
+  optionKey: text('option_key').notNull(),
+  optionValue: text('option_value').notNull(),
+  sortOrder: integer('sort_order').notNull()
+});
+
+export const ocrResultsTable = sqliteTable('ocr_results', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  questionRowId: integer('question_row_id').notNull(),
+  text: text('text').notNull(),
+  sourceImage: text('source_image'),
+  confidenceNote: text('confidence_note').notNull(),
+  createdAt: text('created_at').notNull()
+});
+
+export const draftAnswersTable = sqliteTable('draft_answers', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  questionRowId: integer('question_row_id').notNull(),
+  ocrResultId: integer('ocr_result_id'),
+  draft: text('draft').notNull(),
+  reasoningSummary: text('reasoning_summary').notNull(),
+  confidence: text('confidence').notNull(),
+  generatedAt: text('generated_at').notNull(),
+  isCurrent: integer('is_current', { mode: 'boolean' }).notNull().default(true)
+});
+
+export const answerConfirmationsTable = sqliteTable('answer_confirmations', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  draftAnswerId: integer('draft_answer_id').notNull(),
+  confirmedValue: text('confirmed_value').notNull(),
+  confirmedAt: text('confirmed_at').notNull(),
+  note: text('note')
+});

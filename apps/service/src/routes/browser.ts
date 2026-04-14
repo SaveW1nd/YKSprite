@@ -10,7 +10,23 @@ export const registerBrowserRoutes = (app: FastifyInstance, browserController: B
     return browserController.start();
   });
 
+  app.post('/browser/login/start', async () => {
+    return browserController.startLogin();
+  });
+
   app.post('/browser/stop', async () => {
     return browserController.stop();
+  });
+
+  app.get('/browser/session', async () => {
+    return browserController.getSessionState();
+  });
+
+  app.post('/browser/session/save', async () => {
+    return browserController.saveSession();
+  });
+
+  app.post<{ Body: { url: string } }>('/browser/navigate', async (request) => {
+    return browserController.navigate(request.body.url);
   });
 };

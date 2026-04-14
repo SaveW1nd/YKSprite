@@ -14,10 +14,14 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import {
   fetchBrowserStatus,
   fetchHealth,
+  fetchSessionState,
+  saveSession,
   startBrowser,
+  startLoginSession,
   stopBrowser,
   type BrowserStatus,
-  type HealthResponse
+  type HealthResponse,
+  type SessionState
 } from './lib/api';
 
 type TaskState = 'Running' | 'Queued' | 'Needs Attention' | 'Completed';
@@ -73,10 +77,20 @@ const service = ref<HealthResponse | null>(null);
 const serviceState = ref<'checking' | 'online' | 'offline'>('checking');
 const lastUpdated = ref('等待第一次健康检查');
 const autoRefresh = ref(true);
+const sessionState = ref<SessionState>({
+  hasSession: false,
+  savedAt: null,
+  origin: null,
+  cookieCount: 0,
+  currentUrl: null,
+  pageTitle: null,
+  mode: null
+});
 const browser = ref<BrowserStatus>({
   status: 'idle',
   engine: 'chromium',
   headless: true,
+  mode: null,
   startedAt: null,
   pageUrl: null,
   lastError: null
@@ -123,6 +137,14 @@ const browserStatusDescription = computed(() => {
   return '等待人工触发启动无头浏览器。';
 });
 
+const sessionSummary = computed(() => {
+  if (!sessionState.value.hasSession) {
+    return '未保存会话';
+  }
+
+  return `${sessionState.value.cookieCount} cookies · ${sessionState.value.savedAt ?? '未知时间'}`;
+});
+
 const browserToneClass = computed(() => {
   if (browser.value.status === 'running') return 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100';
   if (browser.value.status === 'error') return 'bg-rose-50 text-rose-700 ring-1 ring-rose-100';
@@ -160,6 +182,20 @@ const syncBrowser = async () => {
   }
 };
 
+const syncSession = async () => {
+  try {
+    sessionState.value = await fetchSessionState();
+  } catch {
+    sessionState.value = {
+      ...sessionState.value,
+      hasSession: false,
+      savedAt: null,
+      origin: null,
+      cookieCount: 0
+    };
+  }
+};
+
 const resetRefreshTimer = () => {
   if (refreshTimer !== null) {
     window.clearInterval(refreshTimer);
@@ -170,12 +206,13 @@ const resetRefreshTimer = () => {
     refreshTimer = window.setInterval(() => {
       void syncHealth();
       void syncBrowser();
+      void syncSession();
     }, 12000);
   }
 };
 
 onMounted(async () => {
-  await Promise.all([syncHealth(), syncBrowser()]);
+  await Promise.all([syncHealth(), syncBrowser(), syncSession()]);
   resetRefreshTimer();
 });
 
@@ -192,14 +229,25 @@ const toggleRefresh = () => {
 
 const handleStartBrowser = async () => {
   browser.value = await startBrowser();
+  await syncSession();
+};
+
+const handleStartLogin = async () => {
+  browser.value = await startLoginSession();
+  await syncSession();
 };
 
 const handleStopBrowser = async () => {
   browser.value = await stopBrowser();
+  await syncSession();
+};
+
+const handleSaveSession = async () => {
+  sessionState.value = await saveSession();
 };
 
 const handleRefreshStatus = async () => {
-  await Promise.all([syncHealth(), syncBrowser()]);
+  await Promise.all([syncHealth(), syncBrowser(), syncSession()]);
 };
 
 const serviceChipClass = computed(() =>
@@ -308,9 +356,11 @@ const healthToneClass = (tone: HealthItem['tone']) => {
                   <p class="mt-2 text-sm text-shell-700">最近一次异常发生在 2 分钟前。</p>
                 </div>
                 <div class="rounded-[22px] border border-slate-200 bg-white px-4 py-4 shadow-soft">
-                  <p class="text-xs font-semibold uppercase tracking-[0.18em] text-shell-700">已完成</p>
-                  <strong class="mt-3 block font-display text-xl font-semibold tracking-tight text-shell-900">{{ completedCount }}</strong>
-                  <p class="mt-2 text-sm text-shell-700">已归档任务保持在可追踪状态。</p>
+                  <p class="text-xs font-semibold uppercase tracking-[0.18em] text-shell-700">已保存会话</p>
+                  <strong class="mt-3 block font-display text-xl font-semibold tracking-tight text-shell-900">
+                    {{ sessionState.hasSession ? '已保存' : '未保存' }}
+                  </strong>
+                  <p class="mt-2 text-sm text-shell-700">{{ sessionSummary }}</p>
                 </div>
               </div>
             </div>
@@ -346,12 +396,26 @@ const healthToneClass = (tone: HealthItem['tone']) => {
                     启动浏览器接管
                   </button>
                   <button
+                    class="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-shell-900 transition hover:border-shell-300"
+                    @click="handleStartLogin"
+                  >
+                    <ArrowTopRightOnSquareIcon class="h-5 w-5" />
+                    扫码登录
+                  </button>
+                  <button
                     :disabled="!canStopBrowser"
                     class="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-shell-900 transition hover:border-shell-300 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
                     @click="handleStopBrowser"
                   >
                     <StopCircleIcon class="h-5 w-5" />
                     停止浏览器
+                  </button>
+                  <button
+                    class="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-shell-900 transition hover:border-shell-300"
+                    @click="handleSaveSession"
+                  >
+                    <CheckCircleIcon class="h-5 w-5" />
+                    保存当前会话
                   </button>
                 </div>
 
@@ -569,6 +633,15 @@ const healthToneClass = (tone: HealthItem['tone']) => {
             </div>
 
             <div class="mt-5 grid gap-3 sm:grid-cols-2">
+              <article class="rounded-[22px] bg-slate-50 px-4 py-4 ring-1 ring-slate-200">
+                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-shell-700">会话信息</p>
+                <strong class="mt-3 block font-display text-lg font-semibold tracking-tight text-shell-900">
+                  {{ sessionState.currentUrl ?? '尚未附着页面' }}
+                </strong>
+                <p class="mt-2 text-sm text-shell-700">
+                  {{ sessionState.pageTitle ?? '暂无页面标题' }} · 模式 {{ sessionState.mode ?? 'none' }}
+                </p>
+              </article>
               <article
                 v-for="item in healthCards"
                 :key="item.label"

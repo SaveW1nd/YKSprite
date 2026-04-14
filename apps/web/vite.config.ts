@@ -5,7 +5,8 @@ export default defineConfig({
   plugins: [vue()],
   server: {
     proxy: {
-      '/health': 'http://127.0.0.1:3000'
+      '/health': 'http://127.0.0.1:3000',
+      '/browser': 'http://127.0.0.1:3000'
     }
   }
 });
