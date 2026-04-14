@@ -1,0 +1,26 @@
+{
+  "name": "@yksprite/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist-electron/main/index.js",
+  "scripts": {
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "build": "electron-vite build",
+    "package": "electron-vite build && electron-builder"
+  },
+  "files": [
+    "dist-electron",
+    "electron-builder.yml"
+  ],
+  "devDependencies": {
+    "@types/electron": "^1.6.12",
+    "@types/node": "^22.5.1",
+    "electron": "^35.1.4",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^5.0.0",
+    "tslib": "^2.7.1",
+    "typescript": "^5.8.3",
+    "vite": "^5.2.0"
+  }
+}

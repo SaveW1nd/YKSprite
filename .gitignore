@@ -1,3 +1,10 @@
-.DS_Store
 .worktrees/
 worktrees/
+node_modules
+dist
+coverage
+.turbo
+.DS_Store
+out
+release
+data

@@ -1,0 +1,10 @@
+appId: com.yksprite.desktop
+productName: YKSprite
+directories:
+  output: dist-electron
+files:
+  - dist/**/*
+  - dist-electron/**/*
+win:
+  target:
+    - nsis
