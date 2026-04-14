@@ -1,0 +1,20 @@
+{
+  "name": "yksprite",
+  "private": true,
+  "packageManager": "pnpm@10.8.0",
+  "scripts": {
+    "lint": "pnpm -r --if-present lint",
+    "test": "vitest run",
+    "build": "pnpm -r --if-present build",
+    "package:desktop": "pnpm --filter @yksprite/desktop package",
+    "docker:build": "docker build -f docker/Dockerfile -t yksprite:dev .",
+    "docker:smoke": "docker run --rm -p 3000:3000 yksprite:dev"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "jsdom": "^26.1.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.2"
+  }
+}
