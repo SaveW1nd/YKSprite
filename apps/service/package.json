@@ -10,7 +10,8 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "fastify": "^4.22.1"
+    "fastify": "^4.22.1",
+    "playwright": "^1.55.0"
   },
   "devDependencies": {
     "@types/node": "^22.5.1"
