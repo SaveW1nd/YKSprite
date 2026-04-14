@@ -22,7 +22,14 @@ export class TaskRepository {
   }
 
   listEvents() {
-    return this.database.db.select().from(eventsTable).orderBy(desc(eventsTable.time)).all() as EventRecord[];
+    const events = this.database.db.select().from(eventsTable).orderBy(desc(eventsTable.time)).all() as EventRecord[];
+    return events.sort((left, right) => {
+      if (left.time !== right.time) {
+        return right.time.localeCompare(left.time);
+      }
+
+      return this.readSequence(right.id) - this.readSequence(left.id);
+    });
   }
 
   addEvent(event: EventRecord) {
@@ -31,5 +38,10 @@ export class TaskRepository {
       taskId: null,
       eventType: event.level
     }).run();
+  }
+
+  private readSequence(id: string) {
+    const match = id.match(/(\d+)$/);
+    return match ? Number(match[1]) : 0;
   }
 }

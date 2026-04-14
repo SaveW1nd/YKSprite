@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createDatabaseClient } from '../../apps/service/src/db/client';
 import { SessionRepository } from '../../apps/service/src/db/session-repository';
+import { TaskRepository } from '../../apps/service/src/db/task-repository';
 
 const cleanupPaths: string[] = [];
 
@@ -63,5 +64,35 @@ describe('database client', () => {
       savedAt: '2026-04-14T00:00:00.000Z'
     });
     expect(active?.cookies).toHaveLength(1);
+  });
+
+  it('lists later events first when timestamps are identical', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'yksprite-db-'));
+    cleanupPaths.push(root);
+    const databasePath = path.join(root, 'data', 'yksprite.db');
+
+    const client = createDatabaseClient({ databasePath });
+    const repository = new TaskRepository(client);
+    const time = '2026-04-14T00:00:00.000Z';
+
+    repository.addEvent({
+      id: 'event-1',
+      level: 'live',
+      title: 'Task started',
+      description: 'First event',
+      time
+    });
+    repository.addEvent({
+      id: 'event-2',
+      level: 'info',
+      title: 'Task succeeded',
+      description: 'Second event',
+      time
+    });
+
+    const events = repository.listEvents();
+    client.close();
+
+    expect(events.map((event) => event.id)).toEqual(['event-2', 'event-1']);
   });
 });
