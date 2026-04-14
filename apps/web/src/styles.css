@@ -1,0 +1,76 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Sora:wght@500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply bg-shell-50 text-shell-900 antialiased;
+    background-image:
+      radial-gradient(circle at top left, rgba(37, 99, 235, 0.12), transparent 30%),
+      radial-gradient(circle at 90% 10%, rgba(15, 159, 110, 0.08), transparent 22%);
+  }
+
+  body {
+    @apply min-h-screen font-sans;
+  }
+
+  #root {
+    @apply min-h-screen;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply rounded-3xl border border-slate-200/80 bg-white/90 shadow-panel backdrop-blur;
+  }
+
+  .metric-card {
+    @apply panel p-5;
+  }
+
+  .section-title {
+    @apply font-display text-xl font-semibold tracking-tight text-shell-900;
+  }
+
+  .section-kicker {
+    @apply text-[11px] font-semibold uppercase tracking-[0.24em] text-shell-700;
+  }
+
+  .status-chip {
+    @apply inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold;
+  }
+
+  .status-chip--online {
+    @apply bg-emerald-100 text-emerald-700;
+  }
+
+  .status-chip--offline {
+    @apply bg-rose-100 text-rose-700;
+  }
+
+  .status-chip--checking {
+    @apply bg-slate-200 text-slate-700;
+  }
+
+  .task-badge {
+    @apply inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold;
+  }
+
+  .task-badge--running {
+    @apply bg-emerald-100 text-emerald-700;
+  }
+
+  .task-badge--queued {
+    @apply bg-blue-100 text-blue-700;
+  }
+
+  .task-badge--attention {
+    @apply bg-amber-100 text-amber-700;
+  }
+
+  .task-badge--completed {
+    @apply bg-slate-100 text-slate-600;
+  }
+}
