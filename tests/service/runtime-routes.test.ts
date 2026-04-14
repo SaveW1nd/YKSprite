@@ -94,6 +94,8 @@ describe('runtime routes', () => {
       const questionsResponse = await app.inject({ method: 'GET', url: '/runtime/questions' });
       const currentResponse = await app.inject({ method: 'GET', url: '/runtime/questions/current' });
       const scanResponse = await app.inject({ method: 'POST', url: '/runtime/scan' });
+      const tasksResponse = await app.inject({ method: 'GET', url: '/tasks' });
+      const eventsResponse = await app.inject({ method: 'GET', url: '/events' });
 
       expect(statusResponse.statusCode).toBe(200);
       expect(statusResponse.json()).toMatchObject({
@@ -121,6 +123,18 @@ describe('runtime routes', () => {
         currentQuestion: {
           questionId: 'q-1'
         }
+      });
+
+      expect(tasksResponse.statusCode).toBe(200);
+      expect(tasksResponse.json()[0]).toMatchObject({
+        type: 'runtime_scan',
+        status: 'succeeded'
+      });
+
+      expect(eventsResponse.statusCode).toBe(200);
+      expect(eventsResponse.json()[0]).toMatchObject({
+        level: 'info',
+        title: 'Task runtime_scan succeeded'
       });
     } finally {
       await app.close();

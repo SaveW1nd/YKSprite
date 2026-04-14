@@ -45,7 +45,7 @@ export const buildServiceApp = (options: BuildServiceAppOptions = {}) => {
 
   registerHealthRoute(app);
   registerBrowserRoutes(app, browserController);
-  registerRuntimeRoutes(app, browserController, runtimeRepository);
+  registerRuntimeRoutes(app, browserController, runtimeRepository, automationStore);
   registerAssistRoutes(app, browserController, automationStore, runtimeRepository, assistRepository);
   registerAutomationRoutes(app, automationStore);
   registerWebShellRoutes(app, options.webDistDir ?? defaultWebDistDir());

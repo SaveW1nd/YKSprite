@@ -6,7 +6,7 @@ const pickLessonState = (html: string, pageTitle: string | null): LessonState =>
   const target = `${pageTitle ?? ''} ${html}`;
   if (/已结束|下课|课程结束/.test(target)) return 'ended';
   if (/未开始|即将开始|待上课/.test(target)) return 'waiting';
-  if (/上课中|课堂|课中|进行中/.test(target)) return 'in_class';
+  if (/上课中|课中|进行中/.test(target)) return 'in_class';
   return 'idle';
 };
 

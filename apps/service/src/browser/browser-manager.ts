@@ -20,6 +20,8 @@ const createIdleStatus = (): BrowserStatus => ({
   lastError: null
 });
 
+const LOGIN_PAGE_URL = 'https://www.yuketang.cn/web';
+
 export class BrowserManager implements BrowserController {
   private readonly launchBrowser: LaunchBrowser;
   private readonly sessionStore: SessionStore;
@@ -102,7 +104,7 @@ export class BrowserManager implements BrowserController {
       this.browser = await this.launchBrowser({ headless: false });
       this.context = await this.browser.newContext();
       this.page = await this.context.newPage();
-      await this.page.goto('https://www.yuketang.cn');
+      await this.page.goto(LOGIN_PAGE_URL);
 
       this.status = {
         status: 'running',

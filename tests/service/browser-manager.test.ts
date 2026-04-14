@@ -98,6 +98,7 @@ describe('BrowserManager', () => {
     const status = await manager.startLogin();
 
     expect(runtime.launch).toHaveBeenCalledWith({ headless: false });
+    expect(runtime.page.goto).toHaveBeenCalledWith('https://www.yuketang.cn/web');
     expect(status).toMatchObject({
       status: 'running',
       mode: 'visible-login'

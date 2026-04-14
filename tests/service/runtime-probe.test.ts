@@ -36,6 +36,23 @@ describe('runtime probe', () => {
     });
   });
 
+  it('keeps the lesson state idle on the logged-in home page', () => {
+    const status = probeRuntimeStatus({
+      currentUrl: 'https://www.yuketang.cn/v2/web/index',
+      pageTitle: '雨课堂',
+      html: '<main><div>欢迎使用雨课堂网页版</div></main>'
+    });
+
+    expect(status).toMatchObject({
+      connected: true,
+      loggedIn: true,
+      courseTitle: '雨课堂',
+      lessonState: 'idle',
+      checkinAvailable: false,
+      questionDetected: false
+    });
+  });
+
   it('extracts structured question records from lesson html', () => {
     const questions = extractQuestionsFromHtml(lessonHtml, '高等数学');
 

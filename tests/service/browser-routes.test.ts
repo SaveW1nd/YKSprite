@@ -37,7 +37,7 @@ const createBrowserController = (): BrowserController => ({
     headless: true,
     mode: 'visible-login',
     startedAt: '2026-04-14T00:00:00.000Z',
-    pageUrl: 'https://www.yuketang.cn',
+    pageUrl: 'https://www.yuketang.cn/web',
     lastError: null
   }),
   stop: async () => ({
