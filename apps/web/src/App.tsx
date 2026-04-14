@@ -1,19 +1,8 @@
-import React from 'react';
-import { fetchStatus } from './lib/api';
-
-const App: React.FC = () => {
-  const [status, setStatus] = React.useState('Loading');
-
-  React.useEffect(() => {
-    fetchStatus().then(setStatus);
-  }, []);
-
+export function App() {
   return (
-    <main className="app-shell">
+    <main>
       <h1>YKSprite Control Center</h1>
-      <p>Status: {status}</p>
+      <p>Desktop and Docker will both use this UI shell.</p>
     </main>
   );
-};
-
-export default App;
+}
