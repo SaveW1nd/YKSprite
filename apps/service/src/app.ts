@@ -16,6 +16,7 @@ import { registerBrowserRoutes } from './routes/browser.js';
 import { registerHealthRoute } from './routes/health.js';
 import { registerRuntimeRoutes } from './routes/runtime.js';
 import { registerWebShellRoutes } from './routes/web-shell.js';
+import { RuntimeMonitor } from './runtime/runtime-monitor.js';
 
 type BuildServiceAppOptions = {
   browserController?: BrowserController;
@@ -42,10 +43,15 @@ export const buildServiceApp = (options: BuildServiceAppOptions = {}) => {
       sessionStore: new SessionStore({ repository: sessionRepository })
     });
   const automationStore = new AutomationStore(taskRepository);
+  const runtimeMonitor = new RuntimeMonitor({
+    browserController,
+    runtimeRepository,
+    automationStore
+  });
 
   registerHealthRoute(app);
   registerBrowserRoutes(app, browserController);
-  registerRuntimeRoutes(app, browserController, runtimeRepository, automationStore);
+  registerRuntimeRoutes(app, browserController, runtimeRepository, automationStore, runtimeMonitor);
   registerAssistRoutes(app, browserController, automationStore, runtimeRepository, assistRepository);
   registerAutomationRoutes(app, automationStore);
   registerWebShellRoutes(app, options.webDistDir ?? defaultWebDistDir());

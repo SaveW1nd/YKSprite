@@ -1,5 +1,7 @@
 export type LessonState = 'idle' | 'in_class' | 'waiting' | 'ended';
 
+export type MonitorPhase = 'idle' | 'home_polling' | 'class_monitoring' | 'returning_home' | 'error_backoff';
+
 export type RuntimeStatus = {
   connected: boolean;
   loggedIn: boolean;
@@ -26,4 +28,14 @@ export type QuestionRecord = {
   slideIndex: number | null;
   detectedAt: string;
   source: 'dom' | 'image' | 'mixed';
+};
+
+export type RuntimeMonitorStatus = {
+  enabled: boolean;
+  phase: MonitorPhase;
+  currentCourse: string | null;
+  currentLessonId: string | null;
+  lastCheckedAt: string | null;
+  lastTransitionAt: string | null;
+  lastError: string | null;
 };

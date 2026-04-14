@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildServiceApp } from '../../apps/service/src/app';
-import type { BrowserController, PageSnapshot, SessionState } from '../../apps/service/src/browser/browser-controller';
+import type { BrowserController, LessonCandidate, PageSnapshot, SessionState } from '../../apps/service/src/browser/browser-controller';
 
 const snapshot: PageSnapshot = {
   currentUrl: 'https://www.yuketang.cn/lesson/123',
@@ -32,7 +32,23 @@ const sessionState: SessionState = {
   mode: 'headless'
 };
 
-const createBrowserController = (): BrowserController => ({
+const homeSnapshot: PageSnapshot = {
+  currentUrl: 'https://www.yuketang.cn/v2/web/index',
+  pageTitle: '雨课堂',
+  html: '<main><div>欢迎使用雨课堂</div></main>'
+};
+
+const activeLessons: LessonCandidate[] = [
+  {
+    id: 'lesson-1',
+    courseTitle: '高等数学',
+    lessonTitle: '第 12 讲',
+    lessonState: 'in_class',
+    href: snapshot.currentUrl
+  }
+];
+
+const createBrowserController = (options: { discoveredLessons?: LessonCandidate[]; inspectSnapshot?: PageSnapshot } = {}): BrowserController => ({
   getStatus: () => ({
     status: 'running',
     engine: 'chromium',
@@ -71,6 +87,15 @@ const createBrowserController = (): BrowserController => ({
   }),
   getSessionState: async () => sessionState,
   saveSession: async () => sessionState,
+  navigateHome: async () => ({
+    status: 'running',
+    engine: 'chromium',
+    headless: true,
+    mode: 'headless',
+    startedAt: '2026-04-14T00:00:00.000Z',
+    pageUrl: homeSnapshot.currentUrl,
+    lastError: null
+  }),
   navigate: async (url: string) => ({
     status: 'running',
     engine: 'chromium',
@@ -80,7 +105,8 @@ const createBrowserController = (): BrowserController => ({
     pageUrl: url,
     lastError: null
   }),
-  inspectPage: async () => snapshot
+  discoverLessons: async () => options.discoveredLessons ?? activeLessons,
+  inspectPage: async () => options.inspectSnapshot ?? snapshot
 });
 
 describe('runtime routes', () => {
@@ -131,6 +157,57 @@ describe('runtime routes', () => {
         status: 'succeeded'
       });
 
+      expect(eventsResponse.statusCode).toBe(200);
+      expect(eventsResponse.json()[0]).toMatchObject({
+        level: 'info',
+        title: 'Task runtime_scan succeeded'
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('starts the runtime monitor and reports home polling state before a class is found', async () => {
+    const app = buildServiceApp({
+      browserController: createBrowserController({
+        discoveredLessons: [],
+        inspectSnapshot: homeSnapshot
+      })
+    });
+
+    try {
+      const startResponse = await app.inject({ method: 'POST', url: '/runtime/monitor/start' });
+      const statusResponse = await app.inject({ method: 'GET', url: '/runtime/monitor' });
+      const tasksResponse = await app.inject({ method: 'GET', url: '/tasks' });
+
+      expect(startResponse.statusCode).toBe(200);
+      expect(statusResponse.statusCode).toBe(200);
+      expect(statusResponse.json()).toMatchObject({
+        enabled: true,
+        phase: 'home_polling'
+      });
+      expect(tasksResponse.json()).toEqual([]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('records runtime scan work when the monitor enters an in-progress lesson', async () => {
+    const app = buildServiceApp({
+      browserController: createBrowserController()
+    });
+
+    try {
+      const startResponse = await app.inject({ method: 'POST', url: '/runtime/monitor/start' });
+      const tasksResponse = await app.inject({ method: 'GET', url: '/tasks' });
+      const eventsResponse = await app.inject({ method: 'GET', url: '/events' });
+
+      expect(startResponse.statusCode).toBe(200);
+      expect(tasksResponse.statusCode).toBe(200);
+      expect(tasksResponse.json()[0]).toMatchObject({
+        type: 'runtime_scan',
+        status: 'succeeded'
+      });
       expect(eventsResponse.statusCode).toBe(200);
       expect(eventsResponse.json()[0]).toMatchObject({
         level: 'info',
