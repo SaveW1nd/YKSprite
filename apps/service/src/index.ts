@@ -1,4 +1,4 @@
-import { buildServiceApp } from './app';
+import { buildServiceApp } from './app.js';
 
 const app = buildServiceApp();
 
