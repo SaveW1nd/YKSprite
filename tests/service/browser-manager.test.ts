@@ -3,6 +3,7 @@ import { BrowserManager } from '../../apps/service/src/browser/browser-manager';
 import { SessionStore } from '../../apps/service/src/browser/session-store';
 
 type FakePage = {
+  evaluate: ReturnType<typeof vi.fn>;
   goto: ReturnType<typeof vi.fn>;
   title: ReturnType<typeof vi.fn>;
   url: ReturnType<typeof vi.fn>;
@@ -22,6 +23,7 @@ type FakeBrowser = {
 
 const createRuntime = () => {
   const page: FakePage = {
+    evaluate: vi.fn().mockResolvedValue([]),
     goto: vi.fn().mockResolvedValue(undefined),
     title: vi.fn().mockResolvedValue('雨课堂'),
     url: vi.fn().mockReturnValue('https://www.yuketang.cn')
@@ -103,6 +105,41 @@ describe('BrowserManager', () => {
       status: 'running',
       mode: 'visible-login'
     });
+  });
+
+  it('discovers in-progress lessons from the logged-in home page', async () => {
+    const runtime = createRuntime();
+    runtime.page.url.mockReturnValue('https://www.yuketang.cn/v2/web/index');
+    runtime.page.title.mockResolvedValue('雨课堂');
+    runtime.page.evaluate.mockResolvedValue([
+      {
+        id: 'lesson-1',
+        courseTitle: '高等数学',
+        lessonTitle: '第 12 讲',
+        lessonState: 'in_class',
+        href: 'https://www.yuketang.cn/v2/web/lesson/lesson-1'
+      }
+    ]);
+
+    const manager = new BrowserManager({ launchBrowser: runtime.launch });
+    await manager.start();
+
+    await expect(manager.discoverLessons()).resolves.toEqual([
+      expect.objectContaining({
+        id: 'lesson-1',
+        lessonState: 'in_class'
+      })
+    ]);
+  });
+
+  it('navigates back to the logged-in home page', async () => {
+    const runtime = createRuntime();
+    const manager = new BrowserManager({ launchBrowser: runtime.launch });
+
+    await manager.start();
+    await manager.navigateHome();
+
+    expect(runtime.page.goto).toHaveBeenLastCalledWith('https://www.yuketang.cn/v2/web/index');
   });
 
   it('is idempotent when start is called repeatedly', async () => {

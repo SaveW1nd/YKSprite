@@ -1,6 +1,6 @@
 import { chromium } from 'playwright';
 import type { Browser, BrowserContext, Page } from 'playwright';
-import type { BrowserController, BrowserStatus, PageSnapshot, ScreenshotPayload, SessionState } from './browser-controller.js';
+import type { BrowserController, BrowserStatus, LessonCandidate, PageSnapshot, ScreenshotPayload, SessionState } from './browser-controller.js';
 import { SessionStore } from './session-store.js';
 
 type LaunchBrowser = typeof chromium.launch;
@@ -21,6 +21,7 @@ const createIdleStatus = (): BrowserStatus => ({
 });
 
 const LOGIN_PAGE_URL = 'https://www.yuketang.cn/web';
+const HOME_PAGE_URL = 'https://www.yuketang.cn/v2/web/index';
 
 export class BrowserManager implements BrowserController {
   private readonly launchBrowser: LaunchBrowser;
@@ -190,6 +191,19 @@ export class BrowserManager implements BrowserController {
     };
   }
 
+  async navigateHome(): Promise<BrowserStatus> {
+    if (!this.page) {
+      return this.getStatus();
+    }
+
+    await this.page.goto(HOME_PAGE_URL);
+    this.status = {
+      ...this.status,
+      pageUrl: this.page.url()
+    };
+    return this.getStatus();
+  }
+
   async navigate(url: string): Promise<BrowserStatus> {
     if (!this.page) {
       return this.getStatus();
@@ -201,6 +215,26 @@ export class BrowserManager implements BrowserController {
       pageUrl: this.page.url()
     };
     return this.getStatus();
+  }
+
+  async discoverLessons(): Promise<LessonCandidate[]> {
+    if (!this.page) {
+      return [];
+    }
+
+    return this.page.evaluate(() => {
+      const cards = Array.from(document.querySelectorAll('[data-lesson-id], a[href*="/lesson/"]'));
+      return cards.map((node, index) => {
+        const text = node.textContent?.trim() ?? '';
+        return {
+          id: node.getAttribute('data-lesson-id') ?? `candidate-${index}`,
+          courseTitle: text || '未命名课程',
+          lessonTitle: null,
+          lessonState: /上课中|进行中/.test(text) ? 'in_class' : /待上课|即将开始/.test(text) ? 'waiting' : 'unknown',
+          href: node instanceof HTMLAnchorElement ? node.href : node.getAttribute('href')
+        } satisfies LessonCandidate;
+      });
+    });
   }
 
   async inspectPage(): Promise<PageSnapshot> {

@@ -24,6 +24,14 @@ export type PageSnapshot = {
   html: string | null;
 };
 
+export type LessonCandidate = {
+  id: string;
+  courseTitle: string;
+  lessonTitle: string | null;
+  lessonState: 'in_class' | 'waiting' | 'ended' | 'unknown';
+  href: string | null;
+};
+
 export type ScreenshotPayload = {
   mimeType: 'image/png';
   data: string;
@@ -36,7 +44,9 @@ export interface BrowserController {
   stop(): Promise<BrowserStatus>;
   getSessionState(): Promise<SessionState>;
   saveSession(): Promise<SessionState>;
+  navigateHome(): Promise<BrowserStatus>;
   navigate(url: string): Promise<BrowserStatus>;
+  discoverLessons(): Promise<LessonCandidate[]>;
   inspectPage(): Promise<PageSnapshot>;
   captureScreenshot(): Promise<ScreenshotPayload>;
 }
