@@ -11,6 +11,7 @@
     "docker:smoke": "docker run --rm -p 3000:3000 yksprite:dev"
   },
   "devDependencies": {
+    "@yksprite/core": "workspace:*",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
     "jsdom": "^26.1.0",
