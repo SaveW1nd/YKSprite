@@ -4,28 +4,26 @@ import type { SolvedAnswer } from './auto-answer-types.js';
 
 const stringifyAnswer = (value: string[] | string | Record<string, unknown>) => JSON.stringify(value);
 
-const normalizeSingleChoice = (suggestedAnswer: string | string[] | null, fallback: string | null) => {
+const normalizeSingleChoice = (suggestedAnswer: string | string[] | null) => {
   if (Array.isArray(suggestedAnswer)) {
-    return [String(suggestedAnswer[0] ?? fallback ?? '').trim()].filter(Boolean);
+    return [String(suggestedAnswer[0] ?? '').trim()].filter(Boolean);
   }
 
-  const value = String(suggestedAnswer ?? fallback ?? '').trim();
+  const value = String(suggestedAnswer ?? '').trim();
   return value ? [value] : [];
 };
 
-const normalizeMultipleChoice = (suggestedAnswer: string | string[] | null, fallback: string | null) => {
+const normalizeMultipleChoice = (suggestedAnswer: string | string[] | null) => {
   const raw = Array.isArray(suggestedAnswer)
     ? suggestedAnswer
     : typeof suggestedAnswer === 'string'
       ? suggestedAnswer.split(/[\s,，、]+/)
-      : fallback
-        ? [fallback]
-        : [];
+      : [];
 
   return [...new Set(raw.map((value) => String(value).trim()).filter(Boolean))].sort();
 };
 
-const normalizeFillIn = (suggestedAnswer: string | string[] | null, fallbackText: string) => {
+const normalizeFillIn = (suggestedAnswer: string | string[] | null) => {
   if (Array.isArray(suggestedAnswer)) {
     return suggestedAnswer.map((value) => String(value).trim()).filter(Boolean);
   }
@@ -37,20 +35,20 @@ const normalizeFillIn = (suggestedAnswer: string | string[] | null, fallbackText
       .filter(Boolean);
   }
 
-  return fallbackText ? [fallbackText] : ['待确认'];
+  return [];
 };
 
-const normalizeSubjective = (suggestedAnswer: string | string[] | null, fallbackText: string) => {
+const normalizeSubjective = (suggestedAnswer: string | string[] | null) => {
   if (Array.isArray(suggestedAnswer)) {
     const joined = suggestedAnswer.map((value) => String(value).trim()).filter(Boolean).join('\n');
-    return joined || fallbackText || '';
+    return joined;
   }
 
   if (typeof suggestedAnswer === 'string' && suggestedAnswer.trim()) {
     return suggestedAnswer.trim();
   }
 
-  return fallbackText || '';
+  return '';
 };
 
 const buildSubjectivePayload = (content: string) => ({
@@ -92,23 +90,21 @@ export class QuestionSolveService {
       this.assistRepository.getCurrentAnalysisByQuestionId(questionId) ??
       (await this.visionAnalysisService.analyzeQuestionImage({ questionId }));
     const questionType = sourceQuestion?.type ?? analysis.questionType;
-    const fallbackOption = sourceQuestion?.options[0]?.key ?? analysis.options[0]?.key ?? null;
-    const fallbackText = sourceQuestion?.body?.trim() || analysis.questionText.trim();
 
     let submitPayloadResult: string[] | string | Record<string, unknown>;
     switch (questionType) {
       case 'multiple_choice':
-        submitPayloadResult = normalizeMultipleChoice(analysis.suggestedAnswer, fallbackOption);
+        submitPayloadResult = normalizeMultipleChoice(analysis.suggestedAnswer);
         break;
       case 'fill_in':
-        submitPayloadResult = normalizeFillIn(analysis.suggestedAnswer, fallbackText);
+        submitPayloadResult = normalizeFillIn(analysis.suggestedAnswer);
         break;
       case 'subjective':
-        submitPayloadResult = buildSubjectivePayload(normalizeSubjective(analysis.suggestedAnswer, fallbackText));
+        submitPayloadResult = buildSubjectivePayload(normalizeSubjective(analysis.suggestedAnswer));
         break;
       case 'single_choice':
       default:
-        submitPayloadResult = normalizeSingleChoice(analysis.suggestedAnswer, fallbackOption);
+        submitPayloadResult = normalizeSingleChoice(analysis.suggestedAnswer);
         break;
     }
 

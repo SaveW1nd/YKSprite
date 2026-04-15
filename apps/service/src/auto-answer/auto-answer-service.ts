@@ -10,8 +10,7 @@ import type {
 } from '../browser/browser-controller.js';
 import type { AssistRepository } from '../db/assist-repository.js';
 import type { RuntimeRepository } from '../db/runtime-repository.js';
-import { extractQuestionsFromHtml } from '../runtime/question-extractor.js';
-import { probeRuntimeStatus } from '../runtime/runtime-probe.js';
+import type { QuestionRecord, RuntimeStatus } from '../runtime/runtime-types.js';
 import type { AutoAnswerRepository } from './auto-answer-repository.js';
 import type {
   AutoAnswerAttemptRecord,
@@ -71,6 +70,40 @@ const createInitialStatus = (): AutoAnswerStatus => ({
 });
 
 const parseLessonIdFromUrl = (url: string | null) => url?.match(/\/lesson\/fullscreen\/v3\/([^/?#]+)/)?.[1] ?? null;
+
+const buildQuestionIdFromRuntimeState = (runtimeState: ExerciseRuntimeState) => {
+  const suffix = runtimeState.exerciseIndex ?? runtimeState.problemId;
+  if (runtimeState.routePath?.includes('/subjective/')) {
+    return `subjective-${suffix}`;
+  }
+  return `exercise-${suffix}`;
+};
+
+const buildQuestionRecordFromRuntimeState = (
+  runtimeState: ExerciseRuntimeState,
+  courseTitle: string | null
+): QuestionRecord => ({
+  questionId: buildQuestionIdFromRuntimeState(runtimeState),
+  courseTitle,
+  type: normalizeRuntimeQuestionType(runtimeState.problemType, 'single_choice'),
+  body: runtimeState.questionText?.trim() ?? '',
+  options: runtimeState.options,
+  slideIndex: runtimeState.pageIndex,
+  detectedAt: new Date().toISOString(),
+  source: runtimeState.imageUrl ? 'image' : 'mixed'
+});
+
+const buildRuntimeStatusForQuestion = (runtimeState: ExerciseRuntimeState, currentUrl: string, courseTitle: string | null): RuntimeStatus => ({
+  connected: true,
+  loggedIn: true,
+  courseTitle,
+  lessonState: 'in_class',
+  checkinAvailable: false,
+  questionDetected: true,
+  currentUrl,
+  pageTitle: null,
+  lastScannedAt: new Date().toISOString()
+});
 
 const runLimited = async <T, R>(items: T[], concurrency: number, worker: (item: T, index: number) => Promise<R>) => {
   if (items.length === 0) {
@@ -299,21 +332,24 @@ export class AutoAnswerService {
   }
 
   private async ensureActiveLesson() {
-    const snapshot = await this.browserController.inspectPage();
-    const runtimeStatus = probeRuntimeStatus(snapshot);
-    const currentLessonId = parseLessonIdFromUrl(runtimeStatus.currentUrl);
-    if (runtimeStatus.lessonState === 'in_class' && currentLessonId) {
+    const currentRuntimeState = await this.browserController.readExerciseRuntimeState();
+    if (currentRuntimeState?.lessonId) {
       return {
-        id: currentLessonId,
-        courseTitle: runtimeStatus.courseTitle ?? '未命名课程',
-        lessonTitle: runtimeStatus.pageTitle ?? null,
+        id: currentRuntimeState.lessonId,
+        courseTitle: '未命名课程',
+        lessonTitle: null,
         lessonState: 'in_class',
-        href: runtimeStatus.currentUrl
+        href: `https://www.yuketang.cn/lesson/fullscreen/v3/${currentRuntimeState.lessonId}`
       } satisfies LessonCandidate;
     }
 
-    if (runtimeStatus.currentUrl !== HOME_PAGE_URL) {
-      await this.browserController.navigateHome();
+    const session = await this.browserController.getSessionState();
+    if (!session.hasSession) {
+      throw new Error('No saved session available for autoplay');
+    }
+
+    if (this.browserController.getStatus().pageUrl !== HOME_PAGE_URL) {
+      await this.browserController.navigate(HOME_PAGE_URL);
     }
 
     const lessons = await this.browserController.discoverLessons();
@@ -324,14 +360,6 @@ export class AutoAnswerService {
     }
 
     return null;
-  }
-
-  private async refreshExerciseEntries(activeLesson: LessonCandidate) {
-    const entries = await this.browserController.listExerciseEntries();
-    this.runtimeRepository.replaceExerciseEntries(activeLesson.id, entries);
-    return this.runtimeRepository
-      .listExerciseEntries()
-      .filter((entry) => entry.lessonId === activeLesson.id);
   }
 
   private async discoverCurrentTarget(activeLesson: LessonCandidate): Promise<{ entryId: string; exerciseUrl: string } | null> {
@@ -350,43 +378,54 @@ export class AutoAnswerService {
   }
 
   private async discoverCurrentExerciseTarget(activeLesson: LessonCandidate): Promise<{ entryId: string; exerciseUrl: string } | null> {
-    const snapshot = await this.browserController.inspectPage();
-    const runtimeStatus = probeRuntimeStatus(snapshot);
     const lessonId = activeLesson.id;
-
+    const currentUrl = this.browserController.getStatus().pageUrl;
+    const runtimeState = await this.browserController.readExerciseRuntimeState();
     if (
-      runtimeStatus.lessonState === 'in_class' &&
-      runtimeStatus.currentUrl &&
-      parseLessonIdFromUrl(runtimeStatus.currentUrl) === lessonId &&
-      /\/(exercise|subjective)\//.test(runtimeStatus.currentUrl)
+      runtimeState &&
+      runtimeState.lessonId === lessonId &&
+      !runtimeState.isComplete &&
+      currentUrl
     ) {
-      const runtimeState = await this.browserController.readExerciseRuntimeState();
-      if (runtimeState && runtimeState.lessonId === lessonId && !runtimeState.isComplete) {
-        return {
-          entryId: `current-exercise-${runtimeState.exerciseIndex ?? runtimeState.problemId}`,
-          exerciseUrl: runtimeStatus.currentUrl
-        };
-      }
+      return {
+        entryId: `current-exercise-${runtimeState.exerciseIndex ?? runtimeState.problemId}`,
+        exerciseUrl: currentUrl
+      };
     }
 
-    if (activeLesson.href && runtimeStatus.currentUrl !== activeLesson.href) {
+    if (activeLesson.href && currentUrl !== activeLesson.href) {
       await this.browserController.navigate(activeLesson.href);
     }
 
-    const openedExerciseUrl = await this.browserController.openCurrentExercise();
-    if (!openedExerciseUrl) {
-      return null;
-    }
-
-    const runtimeState = await this.browserController.readExerciseRuntimeState();
-    if (!runtimeState || runtimeState.lessonId !== lessonId || runtimeState.isComplete) {
+    const refreshedState = await this.browserController.readExerciseRuntimeState();
+    const refreshedUrl = this.browserController.getStatus().pageUrl;
+    if (!refreshedState || refreshedState.lessonId !== lessonId || refreshedState.isComplete || !refreshedUrl) {
       return null;
     }
 
     return {
-      entryId: `current-exercise-${runtimeState.exerciseIndex ?? runtimeState.problemId}`,
-      exerciseUrl: openedExerciseUrl
+      entryId: `current-exercise-${refreshedState.exerciseIndex ?? refreshedState.problemId}`,
+      exerciseUrl: refreshedUrl
     };
+  }
+
+  private async resolveRuntimeState(exerciseUrl: string, expectedLessonId: string | null): Promise<ExerciseRuntimeState | null> {
+    if (this.browserController.getStatus().pageUrl !== exerciseUrl) {
+      await this.browserController.navigate(exerciseUrl);
+    }
+
+    for (let attempt = 0; attempt < DISCOVERY_RETRY_COUNT; attempt += 1) {
+      const runtimeState = await this.browserController.readExerciseRuntimeState();
+      if (runtimeState && (!expectedLessonId || runtimeState.lessonId === expectedLessonId)) {
+        return runtimeState;
+      }
+
+      if (attempt < DISCOVERY_RETRY_COUNT - 1) {
+        await new Promise((resolve) => setTimeout(resolve, DISCOVERY_RETRY_DELAY_MS));
+      }
+    }
+
+    return null;
   }
 
   private async collectEntry(run: AutoAnswerRunRecord, entryId: string, exerciseUrl: string): Promise<CollectResult | null> {
@@ -396,39 +435,18 @@ export class AutoAnswerService {
           analysisStatus: 'processing',
           lastError: null
         });
-        const runtimeState = await this.browserController.ensureExercisePageReady(exerciseUrl);
-        const snapshot = await this.browserController.inspectPage();
-        const runtimeStatus = probeRuntimeStatus(snapshot);
-        const questions = extractQuestionsFromHtml(snapshot.html ?? '', runtimeStatus.courseTitle, snapshot.text ?? null, snapshot.currentUrl);
-        const normalizedQuestions = questions.map((question) => ({
-          ...question,
-          type: normalizeRuntimeQuestionType(runtimeState.problemType, question.type)
-        }));
-        this.runtimeRepository.saveSnapshot(runtimeStatus, normalizedQuestions);
+        const runtimeState = await this.resolveRuntimeState(exerciseUrl, run.lessonId);
+        if (!runtimeState) {
+          throw new Error(`No runtime state detected for ${entryId}`);
+        }
+        const questionRecord = buildQuestionRecordFromRuntimeState(runtimeState, null);
+        const runtimeStatus = buildRuntimeStatusForQuestion(runtimeState, exerciseUrl, null);
+        this.runtimeRepository.saveSnapshot(runtimeStatus, [questionRecord]);
         const currentQuestion = this.runtimeRepository.getCurrentQuestion();
         if (!currentQuestion) {
           throw new Error(`No current question detected for ${entryId}`);
         }
-        const runtimeQuestionType = normalizeRuntimeQuestionType(runtimeState.problemType, currentQuestion.type);
-        if (currentQuestion.type !== runtimeQuestionType) {
-          this.runtimeRepository.updateQuestionType(currentQuestion.id, runtimeQuestionType);
-          currentQuestion.type = runtimeQuestionType;
-        }
-
-        const screenshot = await this.browserController.captureScreenshot();
-        const ocr = extractOcrResult(snapshot, screenshot);
-        this.assistRepository.saveOcrResult(currentQuestion.id, ocr);
-        if (ocr.savedImagePath) {
-          this.assistRepository.saveQuestionCapture({
-            questionRowId: currentQuestion.id,
-            sourceType: 'runtime_question',
-            filePath: ocr.savedImagePath,
-            mimeType: screenshot?.mimeType ?? 'image/png',
-            width: null,
-            height: null,
-            sha256: null
-          });
-        }
+        let hasSavedCapture = false;
         if (runtimeState.imageUrl) {
           try {
             const downloaded = await downloadQuestionImage(runtimeState.imageUrl);
@@ -441,8 +459,34 @@ export class AutoAnswerService {
               height: downloaded.height,
               sha256: downloaded.sha256
             });
+            hasSavedCapture = true;
           } catch {
             // Fall back to screenshot capture when PPT image download fails.
+          }
+        }
+
+        if (!hasSavedCapture) {
+          const screenshot = await this.browserController.captureScreenshot();
+          const ocr = extractOcrResult(
+            {
+              currentUrl: exerciseUrl,
+              pageTitle: null,
+              html: null,
+              text: runtimeState.questionText || null
+            },
+            screenshot
+          );
+          this.assistRepository.saveOcrResult(currentQuestion.id, ocr);
+          if (ocr.savedImagePath) {
+            this.assistRepository.saveQuestionCapture({
+              questionRowId: currentQuestion.id,
+              sourceType: 'runtime_question',
+              filePath: ocr.savedImagePath,
+              mimeType: screenshot?.mimeType ?? 'image/png',
+              width: null,
+              height: null,
+              sha256: null
+            });
           }
         }
 
@@ -542,7 +586,10 @@ export class AutoAnswerService {
     }
 
     const payloadForAttempt = async (): Promise<LessonProblemSubmitPayload | 'already_completed'> => {
-      const runtimeState = await this.browserController.ensureExercisePageReady(exerciseUrl);
+      const runtimeState = await this.resolveRuntimeState(exerciseUrl, this.status.lessonId);
+      if (!runtimeState) {
+        throw new Error(`No runtime state available for ${attempt.exerciseEntryId}`);
+      }
       if (runtimeState.isComplete) {
         return 'already_completed';
       }

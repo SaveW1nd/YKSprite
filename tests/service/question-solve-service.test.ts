@@ -93,27 +93,22 @@ describe('QuestionSolveService', () => {
     });
   });
 
-  it('falls back to a subjective text answer when the model returns no explicit answer', async () => {
+  it('does not fall back to the first option when a single choice answer is empty', async () => {
     const service = new QuestionSolveService(
       createAssistRepository({
-        questionType: 'subjective',
+        questionType: 'single_choice',
         suggestedAnswer: null,
-        questionText: '请简述你的看法'
+        options: [
+          { key: 'A', value: 'A' },
+          { key: 'B', value: 'B' }
+        ]
       }) as never,
       noopVisionService
     );
 
     await expect(service.solveQuestion('q-1')).resolves.toMatchObject({
-      isSubmittable: true,
-      submitPayloadResult: {
-        content: '请简述你的看法',
-        pics: [
-          {
-            pic: '',
-            thumb: ''
-          }
-        ]
-      }
+      isSubmittable: false,
+      submitPayloadResult: []
     });
   });
 
@@ -130,9 +125,9 @@ describe('QuestionSolveService', () => {
     );
 
     await expect(service.solveQuestion('q-1')).resolves.toMatchObject({
-      isSubmittable: true,
+      isSubmittable: false,
       submitPayloadResult: {
-        content: '请描述你的看法',
+        content: '',
         pics: [
           {
             pic: '',
@@ -143,7 +138,7 @@ describe('QuestionSolveService', () => {
     });
   });
 
-  it('marks subjective answers as not submittable when the model returns an empty answer and there is no fallback text', async () => {
+  it('marks subjective answers as not submittable when the model returns an empty answer', async () => {
     const service = new QuestionSolveService(
       createAssistRepository({
         questionType: 'subjective',

@@ -419,19 +419,16 @@ describe('autoplay routes', () => {
     }
   });
 
-  it('opens the current exercise from the lesson page before collecting', async () => {
+  it('processes the current exercise after lesson discovery without clicking the timeline', async () => {
+    const currentExerciseUrl = 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/13';
     const browserController = createBrowserController({
-      initialUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1',
-      inspectPageByUrl: {
-        ...snapshotsByUrl,
-        'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1': {
-          currentUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1',
-          pageTitle: 'test',
-          html: '<main><div>课堂主页</div></main>',
-          text: '课堂主页'
+      initialUrl: 'https://www.yuketang.cn/v2/web/index',
+      discoverLessons: [
+        {
+          ...homeLesson,
+          href: currentExerciseUrl
         }
-      },
-      openCurrentExerciseSequence: ['https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/13']
+      ]
     });
     const app = buildServiceApp({
       browserController,
@@ -751,6 +748,87 @@ describe('autoplay routes', () => {
         problemId: 'problem-20-multi',
         problemType: 2,
         result: ['A', 'B', 'C']
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('processes the current exercise without html inspection when runtime state is already available', async () => {
+    const currentExerciseUrl = 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/30';
+    const browserController = createBrowserController({
+      initialUrl: currentExerciseUrl,
+      runtimeStateByUrl: {
+        ...runtimeStatesByUrl,
+        [currentExerciseUrl]: {
+          lessonId: 'lesson-1',
+          exerciseIndex: '30',
+          problemId: 'problem-30',
+          problemType: 1,
+          pageIndex: 30,
+          questionText: '30 题题干',
+          options: [
+            { key: 'A', value: 'A' },
+            { key: 'B', value: 'B' }
+          ],
+          imageUrl: 'https://example.com/problem-30.jpg',
+          imageThumbnailUrl: 'https://example.com/problem-30-thumb.jpg',
+          isComplete: false,
+          routePath: '/v3/lesson-1/exercise/30'
+        }
+      }
+    });
+    browserController.inspectPage = vi.fn(async () => {
+      throw new Error('inspectPage should not be called by autoplay');
+    });
+    browserController.ensureExercisePageReady = vi.fn(async () => {
+      throw new Error('ensureExercisePageReady should not be called by autoplay');
+    });
+
+    const app = buildServiceApp({
+      browserController,
+      visionAnalysisService: {
+        analyzeQuestionImage: async ({ questionId }) => ({
+          id: 1,
+          questionId,
+          captureId: 1,
+          provider: 'openai' as const,
+          model: 'gpt-4.1-mini',
+          promptVersion: 'single_choice.v1',
+          questionType: 'single_choice' as const,
+          questionText: '30 题题干',
+          options: [
+            { key: 'A', value: 'A' },
+            { key: 'B', value: 'B' }
+          ],
+          suggestedAnswer: 'B',
+          confidence: 'medium' as const,
+          reasoningSummary: '答案为 B。',
+          rawResponseJson: '{}',
+          createdAt: '2026-04-15T00:00:00.000Z'
+        })
+      }
+    });
+
+    try {
+      const startResponse = await app.inject({ method: 'POST', url: '/autoplay/start' });
+      expect(startResponse.statusCode).toBe(200);
+
+      await vi.waitFor(async () => {
+        const statusResponse = await app.inject({ method: 'GET', url: '/autoplay/status' });
+        expect(statusResponse.json()).toMatchObject({
+          status: 'succeeded',
+          totalCount: 1,
+          successCount: 1,
+          failedCount: 0
+        });
+      });
+
+      expect(browserController.submittedPayloads).toHaveLength(1);
+      expect(browserController.submittedPayloads[0]).toMatchObject({
+        problemId: 'problem-30',
+        problemType: 1,
+        result: ['B']
       });
     } finally {
       await app.close();
