@@ -103,6 +103,22 @@ const applyMigrations = (sqlite: Database.Database) => {
       sort_order INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS runtime_exercises (
+      id TEXT PRIMARY KEY NOT NULL,
+      lesson_id TEXT,
+      entry_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      analysis_status TEXT NOT NULL,
+      is_active INTEGER NOT NULL,
+      page_hint TEXT,
+      remaining_hint TEXT,
+      thumbnail_url TEXT,
+      exercise_url TEXT,
+      updated_at TEXT NOT NULL,
+      last_processed_at TEXT,
+      last_error TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS ocr_results (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       question_row_id INTEGER NOT NULL,

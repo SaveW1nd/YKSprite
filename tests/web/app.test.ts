@@ -181,6 +181,28 @@ const createFetchMock = () =>
       };
     }
 
+    if (input === '/runtime/exercises') {
+      return {
+        ok: true,
+        json: async () => [
+          {
+            entryId: 'timeline-10',
+            lessonId: 'lesson-1',
+            status: 'unanswered',
+            analysisStatus: 'done',
+            isActive: true,
+            pageHint: '第5页',
+            remainingHint: '3分钟前',
+            thumbnailUrl: 'https://example.com/problem-10.png',
+            exerciseUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/10',
+            updatedAt: '2026-04-14T00:00:00.000Z',
+            lastProcessedAt: '2026-04-14T00:00:10.000Z',
+            lastError: null
+          }
+        ]
+      };
+    }
+
     if (input === '/assist/capture/q-1') {
       return {
         ok: true,
@@ -284,6 +306,11 @@ describe('App shell', () => {
     expect(wrapper.text()).toContain('建议答案');
     expect(wrapper.text()).toContain('你确定来上课了吗');
     expect(wrapper.text()).toContain('qwen_vl');
+    expect(wrapper.text()).toContain('未完成题目');
+    expect(wrapper.text()).toContain('timeline-10');
+    expect(wrapper.text()).toContain('第5页');
+    expect(wrapper.text()).toContain('done');
+    expect(wrapper.text()).toContain('2026-04-14T00:00:10.000Z');
   });
 
   it('calls browser control endpoints from the action buttons', async () => {
@@ -335,6 +362,7 @@ describe('App shell', () => {
     expect(fetchMock).toHaveBeenCalledWith('/runtime/monitor/start', expect.any(Object));
     expect(fetchMock).toHaveBeenCalledWith('/runtime/monitor/stop', expect.any(Object));
     expect(fetchMock).toHaveBeenCalledWith('/runtime/questions/current');
+    expect(fetchMock).toHaveBeenCalledWith('/runtime/exercises');
     expect(fetchMock).toHaveBeenCalledWith('/assist/capture/q-1');
     expect(fetchMock).toHaveBeenCalledWith('/assist/analysis/q-1');
     expect(fetchMock).toHaveBeenCalledWith('/tasks');

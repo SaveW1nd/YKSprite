@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildServiceApp } from '../../apps/service/src/app';
-import type { BrowserController, LessonCandidate, PageSnapshot, SessionState } from '../../apps/service/src/browser/browser-controller';
+import type { BrowserController, ExerciseEntry, LessonCandidate, PageSnapshot, SessionState } from '../../apps/service/src/browser/browser-controller';
 
 const snapshot: PageSnapshot = {
   currentUrl: 'https://www.yuketang.cn/lesson/123',
@@ -38,6 +38,12 @@ const homeSnapshot: PageSnapshot = {
   html: '<main><div>欢迎使用雨课堂</div></main>'
 };
 
+const lessonHomeSnapshot: PageSnapshot = {
+  currentUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1',
+  pageTitle: '高等数学',
+  html: '<main><div>课堂 · 上课中</div><div>课堂主页</div></main>'
+};
+
 const activeLessons: LessonCandidate[] = [
   {
     id: 'lesson-1',
@@ -48,65 +54,118 @@ const activeLessons: LessonCandidate[] = [
   }
 ];
 
-const createBrowserController = (options: { discoveredLessons?: LessonCandidate[]; inspectSnapshot?: PageSnapshot } = {}): BrowserController => ({
-  getStatus: () => ({
-    status: 'running',
-    engine: 'chromium',
-    headless: true,
-    mode: 'headless',
-    startedAt: '2026-04-14T00:00:00.000Z',
-    pageUrl: snapshot.currentUrl,
-    lastError: null
-  }),
-  start: async () => ({
-    status: 'running',
-    engine: 'chromium',
-    headless: true,
-    mode: 'headless',
-    startedAt: '2026-04-14T00:00:00.000Z',
-    pageUrl: snapshot.currentUrl,
-    lastError: null
-  }),
-  startLogin: async () => ({
-    status: 'running',
-    engine: 'chromium',
-    headless: true,
-    mode: 'visible-login',
-    startedAt: '2026-04-14T00:00:00.000Z',
-    pageUrl: snapshot.currentUrl,
-    lastError: null
-  }),
-  stop: async () => ({
-    status: 'idle',
-    engine: 'chromium',
-    headless: true,
-    mode: null,
-    startedAt: null,
-    pageUrl: null,
-    lastError: null
-  }),
-  getSessionState: async () => sessionState,
-  saveSession: async () => sessionState,
-  navigateHome: async () => ({
-    status: 'running',
-    engine: 'chromium',
-    headless: true,
-    mode: 'headless',
-    startedAt: '2026-04-14T00:00:00.000Z',
-    pageUrl: homeSnapshot.currentUrl,
-    lastError: null
-  }),
-  navigate: async (url: string) => ({
-    status: 'running',
-    engine: 'chromium',
-    headless: true,
-    mode: 'headless',
-    startedAt: '2026-04-14T00:00:00.000Z',
-    pageUrl: url,
-    lastError: null
-  }),
-  discoverLessons: async () => options.discoveredLessons ?? activeLessons,
-  inspectPage: async () => options.inspectSnapshot ?? snapshot
+const exerciseEntries: ExerciseEntry[] = [
+  {
+    entryId: 'timeline-4',
+    lessonId: 'lesson-1',
+    status: 'unanswered',
+    isActive: true,
+    pageHint: '第1页',
+    remainingHint: '10分钟前',
+    thumbnailUrl: 'https://example.com/problem-4.png',
+    exerciseUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/4'
+  }
+];
+
+const createBrowserController = (
+  options: { discoveredLessons?: LessonCandidate[]; inspectSnapshot?: PageSnapshot; listedExercises?: ExerciseEntry[] } = {}
+): BrowserController => {
+  let currentSnapshot = options.inspectSnapshot ?? snapshot;
+
+  return {
+    getStatus: () => ({
+      status: 'running',
+      engine: 'chromium',
+      headless: true,
+      mode: 'headless',
+      startedAt: '2026-04-14T00:00:00.000Z',
+      pageUrl: snapshot.currentUrl,
+      lastError: null
+    }),
+    start: async () => ({
+      status: 'running',
+      engine: 'chromium',
+      headless: true,
+      mode: 'headless',
+      startedAt: '2026-04-14T00:00:00.000Z',
+      pageUrl: snapshot.currentUrl,
+      lastError: null
+    }),
+    startLogin: async () => ({
+      status: 'running',
+      engine: 'chromium',
+      headless: true,
+      mode: 'visible-login',
+      startedAt: '2026-04-14T00:00:00.000Z',
+      pageUrl: snapshot.currentUrl,
+      lastError: null
+    }),
+    stop: async () => ({
+      status: 'idle',
+      engine: 'chromium',
+      headless: true,
+      mode: null,
+      startedAt: null,
+      pageUrl: null,
+      lastError: null
+    }),
+    getSessionState: async () => sessionState,
+    saveSession: async () => sessionState,
+    navigateHome: async () => ({
+      status: 'running',
+      engine: 'chromium',
+      headless: true,
+      mode: 'headless',
+      startedAt: '2026-04-14T00:00:00.000Z',
+      pageUrl: homeSnapshot.currentUrl,
+      lastError: null
+    }),
+    navigate: async (url: string) => {
+      currentSnapshot = {
+        ...currentSnapshot,
+        currentUrl: url
+      };
+
+      return {
+        status: 'running',
+        engine: 'chromium',
+        headless: true,
+        mode: 'headless',
+        startedAt: '2026-04-14T00:00:00.000Z',
+        pageUrl: url,
+        lastError: null
+      };
+    },
+    discoverLessons: async () => options.discoveredLessons ?? activeLessons,
+    listExerciseEntries: async () => options.listedExercises ?? exerciseEntries,
+    inspectPage: async () => currentSnapshot,
+    captureScreenshot: async () => ({
+      mimeType: 'image/png',
+      data: 'ZmFrZS1wbmc='
+    })
+  };
+};
+
+const createVisionAnalysisService = () => ({
+  analyzeQuestionImage: async ({ questionId, provider }: { questionId: string; provider?: 'openai' | 'qwen_vl' }) => ({
+    id: 1,
+    questionId,
+    captureId: 1,
+    provider: provider ?? 'qwen_vl',
+    model: 'qwen-vl-max',
+    promptVersion: 'single_choice.v1',
+    questionType: 'single_choice',
+    questionText: '函数 f(x) 的导数是？',
+    options: [
+      { key: 'A', value: 'x' },
+      { key: 'B', value: '2x' }
+    ],
+    suggestedAnswer: 'B',
+    confidence: 'medium',
+    reasoningSummary: '题干与选项能对应到导数结果。',
+    rawResponseJson: '{}',
+    createdAt: '2026-04-14T00:00:00.000Z'
+  })
 });
 
 describe('runtime routes', () => {
@@ -212,6 +271,86 @@ describe('runtime routes', () => {
       expect(eventsResponse.json()[0]).toMatchObject({
         level: 'info',
         title: 'Task runtime_scan succeeded'
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('navigates into the unanswered exercise entry when already inside a lesson', async () => {
+    const navigatedUrls: string[] = [];
+    const browserController = createBrowserController({
+      inspectSnapshot: lessonHomeSnapshot
+    });
+    browserController.navigate = async (url: string) => {
+      navigatedUrls.push(url);
+      return {
+        status: 'running',
+        engine: 'chromium',
+        headless: true,
+        mode: 'headless',
+        startedAt: '2026-04-14T00:00:00.000Z',
+        pageUrl: url,
+        lastError: null
+      };
+    };
+
+    const app = buildServiceApp({
+      browserController
+    });
+
+    try {
+      const startResponse = await app.inject({ method: 'POST', url: '/runtime/monitor/start' });
+
+      expect(startResponse.statusCode).toBe(200);
+      expect(navigatedUrls).toContain('https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/4');
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('returns unanswered exercise entries from the current lesson timeline', async () => {
+    const app = buildServiceApp({
+      browserController: createBrowserController(),
+      visionAnalysisService: createVisionAnalysisService()
+    });
+
+    try {
+      await app.inject({ method: 'POST', url: '/runtime/monitor/start' });
+      const response = await app.inject({ method: 'GET', url: '/runtime/exercises' });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual([
+        expect.objectContaining({
+          entryId: 'timeline-4',
+          status: 'unanswered',
+          isActive: true
+        })
+      ]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('marks unanswered exercise entries as done after processing them', async () => {
+    const app = buildServiceApp({
+      browserController: createBrowserController({
+        inspectSnapshot: {
+          ...snapshot,
+          currentUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/4'
+        }
+      }),
+      visionAnalysisService: createVisionAnalysisService()
+    });
+
+    try {
+      await app.inject({ method: 'POST', url: '/runtime/monitor/start' });
+      const response = await app.inject({ method: 'GET', url: '/runtime/exercises' });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()[0]).toMatchObject({
+        entryId: 'timeline-4',
+        analysisStatus: 'done'
       });
     } finally {
       await app.close();

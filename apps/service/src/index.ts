@@ -1,4 +1,8 @@
+import path from 'node:path';
 import { buildServiceApp } from './app.js';
+import { loadEnvFile } from './env-loader.js';
+
+loadEnvFile(path.resolve(process.cwd(), '.env'));
 
 const app = buildServiceApp();
 

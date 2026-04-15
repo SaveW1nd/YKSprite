@@ -3,7 +3,7 @@ import type { BrowserController } from '../browser/browser-controller.js';
 import type { AutomationStore } from '../automation/automation-store.js';
 import type { AssistRepository } from '../db/assist-repository.js';
 import type { RuntimeRepository } from '../db/runtime-repository.js';
-import type { VisionAnalysisServiceLike } from '../assist/vision-analysis-service.js';
+import { normalizeVisionAnalysis, type VisionAnalysisServiceLike } from '../assist/vision-analysis-service.js';
 import { extractQuestionsFromHtml } from '../runtime/question-extractor.js';
 import { probeRuntimeStatus } from '../runtime/runtime-probe.js';
 import { buildDraftAnswer } from '../assist/draft-answer-service.js';
@@ -32,19 +32,27 @@ export const registerAssistRoutes = (
       return analysis;
     }
 
-    assistRepository.saveVisionAnalysis({
-      questionRowId: question.id,
+    const normalized = normalizeVisionAnalysis(analysis, {
+      questionId: analysis.questionId,
       captureId: capture.id,
       provider: analysis.provider,
       model: analysis.model,
-      promptVersion: analysis.promptVersion,
-      questionType: analysis.questionType,
-      questionText: analysis.questionText,
-      options: analysis.options,
-      suggestedAnswer: analysis.suggestedAnswer,
-      confidence: analysis.confidence,
-      reasoningSummary: analysis.reasoningSummary,
-      rawResponseJson: analysis.rawResponseJson
+      promptVersion: analysis.promptVersion
+    });
+
+    assistRepository.saveVisionAnalysis({
+      questionRowId: question.id,
+      captureId: capture.id,
+      provider: normalized.provider,
+      model: normalized.model,
+      promptVersion: normalized.promptVersion,
+      questionType: normalized.questionType,
+      questionText: normalized.questionText,
+      options: normalized.options,
+      suggestedAnswer: normalized.suggestedAnswer,
+      confidence: normalized.confidence,
+      reasoningSummary: normalized.reasoningSummary,
+      rawResponseJson: normalized.rawResponseJson
     });
 
     return assistRepository.getCurrentAnalysisByQuestionId(analysis.questionId) ?? analysis;
@@ -54,7 +62,7 @@ export const registerAssistRoutes = (
     return automationStore.executeTask('ocr_extract', 'Extract OCR text from current page', async () => {
       const snapshot = await browserController.inspectPage();
       const runtimeStatus = probeRuntimeStatus(snapshot);
-      const questions = extractQuestionsFromHtml(snapshot.html ?? '', runtimeStatus.courseTitle, snapshot.text ?? null);
+      const questions = extractQuestionsFromHtml(snapshot.html ?? '', runtimeStatus.courseTitle, snapshot.text ?? null, snapshot.currentUrl);
       runtimeRepository.saveSnapshot(runtimeStatus, questions);
       const currentQuestion = runtimeRepository.getCurrentQuestion();
       const screenshot = await browserController.captureScreenshot();
@@ -90,7 +98,7 @@ export const registerAssistRoutes = (
     return automationStore.executeTask('draft_generate', 'Generate draft answer from current question', async () => {
       const snapshot = await browserController.inspectPage();
       const runtimeStatus = probeRuntimeStatus(snapshot);
-      const questions = extractQuestionsFromHtml(snapshot.html ?? '', runtimeStatus.courseTitle, snapshot.text ?? null);
+      const questions = extractQuestionsFromHtml(snapshot.html ?? '', runtimeStatus.courseTitle, snapshot.text ?? null, snapshot.currentUrl);
       runtimeRepository.saveSnapshot(runtimeStatus, questions);
       const currentQuestion = runtimeRepository.getCurrentQuestion();
       if (!currentQuestion) {

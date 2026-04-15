@@ -33,7 +33,12 @@ const extractExerciseOptionsFromText = (text: string): QuestionOption[] =>
     .filter((line) => /^[A-Z]$/.test(line))
     .map((line) => ({ key: line, value: line }));
 
-export const extractQuestionsFromHtml = (html: string, courseTitle: string | null, visibleText?: string | null): QuestionRecord[] => {
+export const extractQuestionsFromHtml = (
+  html: string,
+  courseTitle: string | null,
+  visibleText?: string | null,
+  currentUrl?: string | null
+): QuestionRecord[] => {
   const questionMatches = [...html.matchAll(/<section[^>]*data-question-id=["']?([^"'>\s]+)["']?[^>]*>(.*?)<\/section>/gis)];
 
   if (questionMatches.length === 0 && /page-exercise/.test(html)) {
@@ -41,10 +46,11 @@ export const extractQuestionsFromHtml = (html: string, courseTitle: string | nul
     const body = bodyMatch?.[1]?.replace(/<[^>]+>/g, '').trim() ?? '未识别题干';
     const options = extractExerciseOptions(html);
     const fallbackOptions = options.length > 0 ? options : extractExerciseOptionsFromText(visibleText ?? '');
+    const exerciseId = currentUrl?.match(/\/exercise\/([^/?#]+)/)?.[1] ?? 'current';
 
     return [
       {
-        questionId: 'exercise-current',
+        questionId: `exercise-${exerciseId}`,
         courseTitle,
         type: inferQuestionType(html),
         body,

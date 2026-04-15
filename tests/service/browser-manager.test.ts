@@ -169,6 +169,57 @@ describe('BrowserManager', () => {
     expect(runtime.page.goto).toHaveBeenLastCalledWith('https://www.yuketang.cn/v2/web/index');
   });
 
+  it('lists unanswered exercise entries from the lesson timeline', async () => {
+    const runtime = createRuntime();
+    runtime.page.url.mockReturnValue('https://www.yuketang.cn/lesson/fullscreen/v3/1664260129043859968');
+    runtime.page.title.mockResolvedValue('test');
+    runtime.page.evaluate.mockImplementation(async (fn: () => unknown) => fn());
+    document.body.innerHTML = `
+      <section class="timeline__wrap">
+        <section data-index="4" class="timeline__item J_slide active">
+          <div class="timeline__ppt problem">
+            <div class="ppt__cover--wrapper">
+              <img class="cover" src="https://example.com/problem-4.png" />
+            </div>
+            <div class="timeline__footer box-between cfff">
+              <p class="f12">10分钟前</p>
+              <span class="f12">未完成</span>
+            </div>
+          </div>
+        </section>
+        <section data-index="5" class="timeline__item J_slide">
+          <div class="timeline__ppt problem">
+            <div class="ppt__cover--wrapper">
+              <img class="cover" src="https://example.com/problem-5.png" />
+            </div>
+            <div class="timeline__footer box-between cfff">
+              <p class="f12">8分钟前</p>
+              <span class="f12">已完成</span>
+            </div>
+          </div>
+        </section>
+      </section>
+    `;
+
+    const manager = new BrowserManager({ launchBrowser: runtime.launch });
+    await manager.start();
+
+    await expect(manager.listExerciseEntries()).resolves.toEqual([
+      expect.objectContaining({
+        entryId: 'timeline-4',
+        status: 'unanswered',
+        isActive: true,
+        thumbnailUrl: 'https://example.com/problem-4.png'
+      }),
+      expect.objectContaining({
+        entryId: 'timeline-5',
+        status: 'answered',
+        isActive: false,
+        thumbnailUrl: 'https://example.com/problem-5.png'
+      })
+    ]);
+  });
+
   it('is idempotent when start is called repeatedly', async () => {
     const runtime = createRuntime();
     const manager = new BrowserManager({ launchBrowser: runtime.launch });

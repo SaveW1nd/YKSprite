@@ -11,11 +11,34 @@ type AnalysisProvider = 'openai' | 'qwen_vl';
 type AnalysisResultShape = {
   question_type: 'single_choice' | 'multiple_choice' | 'fill_in' | 'subjective';
   question_text: string;
-  options: Array<{ key: string; value: string }>;
+  options: Array<{ key: string; value: string }> | string[];
   suggested_answer: string | string[] | null;
   confidence: 'low' | 'medium' | 'high';
   reasoning_summary: string;
 };
+
+type RawVisionAnalysis =
+  | AnalysisResultShape
+  | {
+      id?: number;
+      questionId: string;
+      captureId: number;
+      provider: 'openai' | 'qwen_vl';
+      model: string;
+      promptVersion: string;
+      question_type?: 'single_choice' | 'multiple_choice' | 'fill_in' | 'subjective';
+      questionType?: 'single_choice' | 'multiple_choice' | 'fill_in' | 'subjective';
+      question_text?: string;
+      questionText?: string;
+      options: Array<{ key: string; value: string }> | string[];
+      suggested_answer?: string | string[] | null;
+      suggestedAnswer?: string | string[] | null;
+      confidence: 'low' | 'medium' | 'high' | string;
+      reasoning_summary?: string;
+      reasoningSummary?: string;
+      rawResponseJson: string;
+      createdAt?: string;
+    };
 
 export type VisionAnalysisServiceLike = {
   analyzeQuestionImage(input: {
@@ -37,6 +60,54 @@ const buildProblemHint = (analysisSource: {
   type: (analysisSource.type === 'multiple_choice' ? 'multiple_choice' : 'single_choice') as Problem['type'],
   body: analysisSource.body,
   options: analysisSource.options
+});
+
+const normalizeOptions = (options: Array<{ key: string; value: string }> | string[]) =>
+  options.map((option) => {
+    if (typeof option !== 'string') {
+      return option;
+    }
+
+    const match = option.match(/^([A-Z])[\.\s、:：-]*(.*)$/);
+    if (!match) {
+      return {
+        key: option,
+        value: option
+      };
+    }
+
+    return {
+      key: match[1],
+      value: match[2] || match[1]
+    };
+  });
+
+const normalizeConfidence = (confidence: string): 'low' | 'medium' | 'high' =>
+  confidence === 'high' || confidence === 'medium' ? confidence : 'low';
+
+export const normalizeVisionAnalysis = (
+  raw: RawVisionAnalysis,
+  context: {
+    questionId: string;
+    captureId: number;
+    provider: AnalysisProvider;
+    model: string;
+    promptVersion: string;
+  }
+) => ({
+  questionId: 'questionId' in raw && raw.questionId ? raw.questionId : context.questionId,
+  captureId: 'captureId' in raw && raw.captureId ? raw.captureId : context.captureId,
+  provider: 'provider' in raw && raw.provider ? raw.provider : context.provider,
+  model: 'model' in raw && raw.model ? raw.model : context.model,
+  promptVersion: 'promptVersion' in raw && raw.promptVersion ? raw.promptVersion : context.promptVersion,
+  questionType: ('questionType' in raw && raw.questionType) || ('question_type' in raw && raw.question_type) || 'single_choice',
+  questionText: ('questionText' in raw && raw.questionText) || ('question_text' in raw && raw.question_text) || '',
+  options: normalizeOptions(raw.options),
+  suggestedAnswer: ('suggestedAnswer' in raw && raw.suggestedAnswer !== undefined ? raw.suggestedAnswer : undefined) ?? ('suggested_answer' in raw ? raw.suggested_answer : null) ?? null,
+  confidence: normalizeConfidence(raw.confidence),
+  reasoningSummary: ('reasoningSummary' in raw && raw.reasoningSummary) || ('reasoning_summary' in raw && raw.reasoning_summary) || '',
+  rawResponseJson: 'rawResponseJson' in raw ? raw.rawResponseJson : '{}',
+  createdAt: 'createdAt' in raw && raw.createdAt ? raw.createdAt : new Date().toISOString()
 });
 
 export class VisionAnalysisService implements VisionAnalysisServiceLike {
@@ -69,20 +140,26 @@ export class VisionAnalysisService implements VisionAnalysisServiceLike {
         ? await analyzeWithOpenAI({ imagePath: capture.filePath, prompt })
         : await analyzeWithQwenVl({ imagePath: capture.filePath, prompt });
 
-    const parsed = JSON.parse(response.content) as AnalysisResultShape;
+    const parsed = normalizeVisionAnalysis(JSON.parse(response.content) as AnalysisResultShape, {
+      questionId: input.questionId,
+      captureId: capture.id,
+      provider,
+      model: provider === 'openai' ? process.env.OPENAI_MODEL ?? 'gpt-4.1-mini' : process.env.QWEN_VL_MODEL ?? 'qwen-vl-max',
+      promptVersion: `${promptType}.v1`
+    });
 
     const analysisId = this.repository.saveVisionAnalysis({
       questionRowId: question.id,
       captureId: capture.id,
-      provider,
-      model: provider === 'openai' ? process.env.OPENAI_MODEL ?? 'gpt-4.1-mini' : process.env.QWEN_VL_MODEL ?? 'qwen-vl-max',
-      promptVersion: `${promptType}.v1`,
-      questionType: parsed.question_type,
-      questionText: parsed.question_text,
+      provider: parsed.provider,
+      model: parsed.model,
+      promptVersion: parsed.promptVersion,
+      questionType: parsed.questionType,
+      questionText: parsed.questionText,
       options: parsed.options,
-      suggestedAnswer: parsed.suggested_answer,
+      suggestedAnswer: parsed.suggestedAnswer,
       confidence: parsed.confidence,
-      reasoningSummary: parsed.reasoning_summary,
+      reasoningSummary: parsed.reasoningSummary,
       rawResponseJson: response.rawResponseJson
     });
 

@@ -16,7 +16,7 @@ export const registerRuntimeRoutes = (
   app.get('/runtime/status', async () => {
     const snapshot = await browserController.inspectPage();
     const status = probeRuntimeStatus(snapshot);
-    const questions = extractQuestionsFromHtml(snapshot.html ?? '', status.courseTitle, snapshot.text ?? null);
+    const questions = extractQuestionsFromHtml(snapshot.html ?? '', status.courseTitle, snapshot.text ?? null, snapshot.currentUrl);
     runtimeRepository.saveSnapshot(status, questions);
     return status;
   });
@@ -24,7 +24,7 @@ export const registerRuntimeRoutes = (
   app.get('/runtime/questions', async () => {
     const snapshot = await browserController.inspectPage();
     const status = probeRuntimeStatus(snapshot);
-    const questions = extractQuestionsFromHtml(snapshot.html ?? '', status.courseTitle, snapshot.text ?? null);
+    const questions = extractQuestionsFromHtml(snapshot.html ?? '', status.courseTitle, snapshot.text ?? null, snapshot.currentUrl);
     runtimeRepository.saveSnapshot(status, questions);
     return runtimeRepository.listQuestions();
   });
@@ -32,16 +32,20 @@ export const registerRuntimeRoutes = (
   app.get('/runtime/questions/current', async () => {
     const snapshot = await browserController.inspectPage();
     const status = probeRuntimeStatus(snapshot);
-    const questions = extractQuestionsFromHtml(snapshot.html ?? '', status.courseTitle, snapshot.text ?? null);
+    const questions = extractQuestionsFromHtml(snapshot.html ?? '', status.courseTitle, snapshot.text ?? null, snapshot.currentUrl);
     runtimeRepository.saveSnapshot(status, questions);
     return runtimeRepository.getCurrentQuestion();
+  });
+
+  app.get('/runtime/exercises', async () => {
+    return runtimeRepository.listExerciseEntries();
   });
 
   app.post('/runtime/scan', async () => {
     return automationStore.executeTask('runtime_scan', 'Scan current lesson page', async () => {
       const snapshot = await browserController.inspectPage();
       const status = probeRuntimeStatus(snapshot);
-      const questions = extractQuestionsFromHtml(snapshot.html ?? '', status.courseTitle, snapshot.text ?? null);
+      const questions = extractQuestionsFromHtml(snapshot.html ?? '', status.courseTitle, snapshot.text ?? null, snapshot.currentUrl);
       runtimeRepository.saveSnapshot(status, questions);
       return {
         status,

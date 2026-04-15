@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { AutomationStore } from '../../apps/service/src/automation/automation-store';
 import { AssistRepository } from '../../apps/service/src/db/assist-repository';
 import { createDatabaseClient } from '../../apps/service/src/db/client';
+import { RuntimeRepository } from '../../apps/service/src/db/runtime-repository';
 import { questionsTable } from '../../apps/service/src/db/schema';
 import { SessionRepository } from '../../apps/service/src/db/session-repository';
 import { TaskRepository } from '../../apps/service/src/db/task-repository';
@@ -187,6 +188,84 @@ describe('database client', () => {
     expect(repository.getCurrentAnalysisByQuestionId('q-1')).toMatchObject({
       provider: 'openai',
       suggestedAnswer: 'A'
+    });
+
+    client.close();
+  });
+
+  it('stores and lists unanswered exercise queue entries for a lesson', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'yksprite-db-'));
+    cleanupPaths.push(root);
+    const databasePath = path.join(root, 'data', 'yksprite.db');
+
+    const client = createDatabaseClient({ databasePath });
+    const repository = new RuntimeRepository(client);
+
+    repository.replaceExerciseEntries('lesson-1', [
+      {
+        entryId: 'timeline-4',
+        lessonId: 'lesson-1',
+        status: 'unanswered',
+        analysisStatus: 'pending',
+        isActive: true,
+        pageHint: '第5页',
+        remainingHint: '3分钟前',
+        thumbnailUrl: 'https://example.com/problem-4.png',
+        exerciseUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/4'
+      },
+      {
+        entryId: 'timeline-5',
+        lessonId: 'lesson-1',
+        status: 'answered',
+        analysisStatus: 'done',
+        isActive: false,
+        pageHint: '第6页',
+        remainingHint: '1分钟前',
+        thumbnailUrl: 'https://example.com/problem-5.png',
+        exerciseUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/5'
+      }
+    ]);
+
+    expect(repository.listExerciseEntries()).toEqual([
+      expect.objectContaining({
+        lessonId: 'lesson-1',
+        entryId: 'timeline-4',
+        status: 'unanswered',
+        analysisStatus: 'pending',
+        isActive: true
+      }),
+      expect.objectContaining({
+        lessonId: 'lesson-1',
+        entryId: 'timeline-5',
+        status: 'answered',
+        analysisStatus: 'done',
+        isActive: false
+      })
+    ]);
+
+    repository.updateExerciseProcessingState('lesson-1', 'timeline-4', {
+      analysisStatus: 'done',
+      lastProcessedAt: '2026-04-14T00:00:10.000Z'
+    });
+
+    repository.replaceExerciseEntries('lesson-1', [
+      {
+        entryId: 'timeline-4',
+        lessonId: 'lesson-1',
+        status: 'unanswered',
+        analysisStatus: 'pending',
+        isActive: true,
+        pageHint: '第5页',
+        remainingHint: '2分钟前',
+        thumbnailUrl: 'https://example.com/problem-4.png',
+        exerciseUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/4'
+      }
+    ]);
+
+    expect(repository.listExerciseEntries()[0]).toMatchObject({
+      entryId: 'timeline-4',
+      analysisStatus: 'done',
+      lastProcessedAt: '2026-04-14T00:00:10.000Z'
     });
 
     client.close();

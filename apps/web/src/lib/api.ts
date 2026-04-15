@@ -62,6 +62,21 @@ export type CurrentQuestion = {
   detectedAt: string;
 };
 
+export type RuntimeExerciseEntry = {
+  entryId: string;
+  lessonId: string | null;
+  status: 'unanswered' | 'answered' | 'expired';
+  analysisStatus?: 'pending' | 'processing' | 'done' | 'failed';
+  isActive: boolean;
+  pageHint: string | null;
+  remainingHint: string | null;
+  thumbnailUrl: string | null;
+  exerciseUrl: string | null;
+  updatedAt: string | null;
+  lastProcessedAt?: string | null;
+  lastError?: string | null;
+};
+
 export type QuestionCapture = {
   id: number;
   questionId: string;
@@ -176,6 +191,14 @@ const readAnalysisResponse = async (response: Response): Promise<VisionAnalysis 
   return response.json() as Promise<VisionAnalysis | null>;
 };
 
+const readExercisesResponse = async (response: Response): Promise<RuntimeExerciseEntry[]> => {
+  if (!response.ok) {
+    throw new Error(`Exercises request failed with status ${response.status}`);
+  }
+
+  return response.json() as Promise<RuntimeExerciseEntry[]>;
+};
+
 const readTasksResponse = async (response: Response): Promise<TaskRecord[]> => {
   if (!response.ok) {
     throw new Error(`Tasks request failed with status ${response.status}`);
@@ -257,6 +280,11 @@ export async function stopRuntimeMonitor(): Promise<RuntimeMonitorStatus> {
 export async function fetchCurrentQuestion(): Promise<CurrentQuestion | null> {
   const response = await fetch('/runtime/questions/current');
   return readQuestionResponse(response);
+}
+
+export async function fetchRuntimeExercises(): Promise<RuntimeExerciseEntry[]> {
+  const response = await fetch('/runtime/exercises');
+  return readExercisesResponse(response);
 }
 
 export async function fetchQuestionCapture(questionId: string): Promise<QuestionCapture | null> {

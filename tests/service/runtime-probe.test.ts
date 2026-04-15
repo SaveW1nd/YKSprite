@@ -117,10 +117,16 @@ describe('runtime probe', () => {
   });
 
   it('extracts structured question records from fullscreen exercise html', () => {
-    const questions = extractQuestionsFromHtml(exerciseHtml, 'test');
+    const questions = extractQuestionsFromHtml(
+      exerciseHtml,
+      'test',
+      undefined,
+      'https://www.yuketang.cn/lesson/fullscreen/v3/1664192052646150656/exercise/7'
+    );
 
     expect(questions).toHaveLength(1);
     expect(questions[0]).toMatchObject({
+      questionId: 'exercise-7',
       courseTitle: 'test',
       type: 'single_choice',
       body: '函数 f(x) 的导数是？',
@@ -132,10 +138,16 @@ describe('runtime probe', () => {
   });
 
   it('falls back to visible text when fullscreen exercise options are not in html nodes', () => {
-    const questions = extractQuestionsFromHtml('<section class="page-exercise"></section>', 'test', exerciseVisibleText);
+    const questions = extractQuestionsFromHtml(
+      '<section class="page-exercise"></section>',
+      'test',
+      exerciseVisibleText,
+      'https://www.yuketang.cn/lesson/fullscreen/v3/1664192052646150656/exercise/7'
+    );
 
     expect(questions).toHaveLength(1);
     expect(questions[0]).toMatchObject({
+      questionId: 'exercise-7',
       courseTitle: 'test',
       options: [
         { key: 'A', value: 'A' },

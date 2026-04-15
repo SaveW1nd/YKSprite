@@ -33,6 +33,17 @@ export type LessonCandidate = {
   href: string | null;
 };
 
+export type ExerciseEntry = {
+  entryId: string;
+  lessonId: string | null;
+  status: 'unanswered' | 'answered' | 'expired';
+  isActive: boolean;
+  pageHint: string | null;
+  remainingHint: string | null;
+  thumbnailUrl: string | null;
+  exerciseUrl: string | null;
+};
+
 export type ScreenshotPayload = {
   mimeType: 'image/png';
   data: string;
@@ -48,6 +59,7 @@ export interface BrowserController {
   navigateHome(): Promise<BrowserStatus>;
   navigate(url: string): Promise<BrowserStatus>;
   discoverLessons(): Promise<LessonCandidate[]>;
+  listExerciseEntries(): Promise<ExerciseEntry[]>;
   inspectPage(): Promise<PageSnapshot>;
   captureScreenshot(): Promise<ScreenshotPayload>;
 }

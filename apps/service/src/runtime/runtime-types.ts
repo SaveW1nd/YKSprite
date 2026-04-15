@@ -30,6 +30,21 @@ export type QuestionRecord = {
   source: 'dom' | 'image' | 'mixed';
 };
 
+export type ExerciseQueueEntry = {
+  entryId: string;
+  lessonId: string | null;
+  status: 'unanswered' | 'answered' | 'expired';
+  analysisStatus?: 'pending' | 'processing' | 'done' | 'failed';
+  isActive: boolean;
+  pageHint: string | null;
+  remainingHint: string | null;
+  thumbnailUrl: string | null;
+  exerciseUrl: string | null;
+  updatedAt?: string | null;
+  lastProcessedAt?: string | null;
+  lastError?: string | null;
+};
+
 export type RuntimeMonitorStatus = {
   enabled: boolean;
   phase: MonitorPhase;

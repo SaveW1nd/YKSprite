@@ -1,6 +1,6 @@
 import { chromium } from 'playwright';
 import type { Browser, BrowserContext, Page } from 'playwright';
-import type { BrowserController, BrowserStatus, LessonCandidate, PageSnapshot, ScreenshotPayload, SessionState } from './browser-controller.js';
+import type { BrowserController, BrowserStatus, ExerciseEntry, LessonCandidate, PageSnapshot, ScreenshotPayload, SessionState } from './browser-controller.js';
 import { SessionStore } from './session-store.js';
 
 type LaunchBrowser = typeof chromium.launch;
@@ -263,6 +263,47 @@ export class BrowserManager implements BrowserController {
           lessonState: /上课中|进行中/.test(text) ? 'in_class' : /待上课|即将开始/.test(text) ? 'waiting' : 'unknown',
           href: node instanceof HTMLAnchorElement ? node.href : node.getAttribute('href')
         } satisfies LessonCandidate;
+      });
+    });
+  }
+
+  async listExerciseEntries(): Promise<ExerciseEntry[]> {
+    if (!this.page) {
+      return [];
+    }
+
+    return this.page.evaluate(() => {
+      const lessonMatch = location.pathname.match(/\/lesson\/fullscreen\/v3\/([^/?#]+)/);
+      const lessonId = lessonMatch?.[1] ?? null;
+
+      return Array.from(document.querySelectorAll('.timeline__item.J_slide')).flatMap((item, index) => {
+        const problem = item.querySelector('.timeline__ppt.problem');
+        if (!problem) {
+          return [];
+        }
+
+        const text = (problem.textContent ?? '').trim();
+        const status = /未完成/.test(text) ? 'unanswered' : /已完成/.test(text) ? 'answered' : /结束/.test(text) ? 'expired' : 'unanswered';
+        const img = problem.querySelector('img.cover');
+        const isActive = item.classList.contains('active');
+        const pageHint = problem.querySelector('.ppt--pageno')?.textContent?.trim() ?? null;
+        const remainingHint = problem.querySelector('.timeline__footer p')?.textContent?.trim() ?? null;
+        const exerciseId = isActive && /\/exercise\/([^/?#]+)/.test(location.pathname)
+          ? location.pathname.match(/\/exercise\/([^/?#]+)/)?.[1] ?? null
+          : item.getAttribute('data-index');
+
+        return [
+          {
+            entryId: `timeline-${item.getAttribute('data-index') ?? index}`,
+            lessonId,
+            status,
+            isActive,
+            pageHint,
+            remainingHint,
+            thumbnailUrl: img?.getAttribute('src') ?? null,
+            exerciseUrl: exerciseId && lessonId ? `${location.origin}/lesson/fullscreen/v3/${lessonId}/exercise/${exerciseId}` : null
+          } satisfies ExerciseEntry
+        ];
       });
     });
   }

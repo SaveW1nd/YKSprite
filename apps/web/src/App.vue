@@ -16,6 +16,7 @@ import {
   fetchQuestionAnalysis,
   fetchQuestionCapture,
   fetchCurrentQuestion,
+  fetchRuntimeExercises,
   fetchEvents,
   fetchHealth,
   fetchRuntimeMonitor,
@@ -34,6 +35,7 @@ import {
   type HealthResponse,
   type QuestionCapture,
   type RuntimeMonitorStatus,
+  type RuntimeExerciseEntry,
   type RuntimeStatus,
   type SessionState,
   type TaskRecord,
@@ -96,6 +98,7 @@ const monitor = ref<RuntimeMonitorStatus>({
 const currentQuestion = ref<CurrentQuestion | null>(null);
 const currentCapture = ref<QuestionCapture | null>(null);
 const currentAnalysis = ref<VisionAnalysis | null>(null);
+const runtimeExercises = ref<RuntimeExerciseEntry[]>([]);
 const tasks = ref<TaskRecord[]>([]);
 const events = ref<EventRecord[]>([]);
 
@@ -278,6 +281,14 @@ const syncTasks = async () => {
   }
 };
 
+const syncExercises = async () => {
+  try {
+    runtimeExercises.value = await fetchRuntimeExercises();
+  } catch {
+    runtimeExercises.value = [];
+  }
+};
+
 const syncEvents = async () => {
   try {
     events.value = await fetchEvents();
@@ -287,7 +298,7 @@ const syncEvents = async () => {
 };
 
 const syncAll = async () => {
-  await Promise.all([syncHealth(), syncBrowser(), syncSession(), syncRuntime(), syncMonitor(), syncCurrentQuestion(), syncTasks(), syncEvents()]);
+  await Promise.all([syncHealth(), syncBrowser(), syncSession(), syncRuntime(), syncMonitor(), syncCurrentQuestion(), syncExercises(), syncTasks(), syncEvents()]);
 };
 
 const resetRefreshTimer = () => {
@@ -706,6 +717,22 @@ const healthToneClass = (tone: HealthItem['tone']) => {
                 <strong class="mt-3 block font-display text-lg font-semibold tracking-tight text-shell-900">{{ analysisAnswerLabel }}</strong>
                 <p class="mt-2 text-sm text-shell-700">{{ currentAnalysis?.questionText ?? '暂无题干识别结果' }}</p>
                 <p class="mt-2 text-sm text-shell-700">{{ currentAnalysis?.provider ?? '未分析' }} · {{ currentAnalysis?.reasoningSummary ?? '暂无分析理由' }}</p>
+              </article>
+              <article class="rounded-[22px] bg-slate-50 px-4 py-4 ring-1 ring-slate-200 sm:col-span-2">
+                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-shell-700">未完成题目</p>
+                <div v-if="runtimeExercises.length === 0" class="mt-3 text-sm text-shell-700">当前课堂没有待处理题目。</div>
+                <div v-else class="mt-3 space-y-3">
+                  <div v-for="entry in runtimeExercises" :key="entry.entryId" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-shell-700">
+                    <div class="flex items-center justify-between gap-3">
+                      <strong class="font-semibold text-shell-900">{{ entry.entryId }}</strong>
+                      <span class="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">{{ entry.status }}</span>
+                    </div>
+                    <p class="mt-2">{{ entry.pageHint ?? '未知页码' }} · {{ entry.remainingHint ?? '未知时间' }}</p>
+                    <p class="mt-2">处理状态：{{ entry.analysisStatus ?? 'pending' }}</p>
+                    <p v-if="entry.lastProcessedAt" class="mt-2">最后处理：{{ entry.lastProcessedAt }}</p>
+                    <p v-if="entry.lastError" class="mt-2 text-rose-600">错误：{{ entry.lastError }}</p>
+                  </div>
+                </div>
               </article>
               <article v-for="item in healthCards" :key="item.label" :class="healthToneClass(item.tone)" class="rounded-[22px] px-4 py-4">
                 <p class="text-xs font-semibold uppercase tracking-[0.18em]">{{ item.label }}</p>

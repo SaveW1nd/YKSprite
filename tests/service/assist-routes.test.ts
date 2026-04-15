@@ -105,15 +105,17 @@ const createVisionAnalysisService = () => ({
     provider: provider ?? 'qwen_vl',
     model: provider === 'openai' ? 'gpt-4.1-mini' : 'qwen-vl-max',
     promptVersion: 'single_choice.v1',
-    questionType: 'single_choice',
-    questionText: '你确定来上课了吗',
-    options: [
-      { key: 'A', value: '确定来了' },
-      { key: 'B', value: '不知道啊' }
-    ],
-    suggestedAnswer: 'A',
+    question_type: 'single_choice',
+    question_text: '你确定来上课了吗',
+    options: provider === 'openai'
+      ? [
+          { key: 'A', value: '确定来了' },
+          { key: 'B', value: '不知道啊' }
+        ]
+      : ['A. 确定来了', 'B. 不知道啊'],
+    suggested_answer: 'A',
     confidence: 'medium',
-    reasoningSummary: '截图中能识别出题干与选项，A 更符合语义。',
+    reasoning_summary: '截图中能识别出题干与选项，A 更符合语义。',
     rawResponseJson: '{}',
     createdAt: '2026-04-14T00:00:00.000Z'
   })
@@ -162,7 +164,11 @@ describe('assist and automation routes', () => {
         questionText: '你确定来上课了吗',
         suggestedAnswer: 'A',
         confidence: 'medium',
-        reasoningSummary: expect.any(String)
+        reasoningSummary: expect.any(String),
+        options: [
+          { key: 'A', value: '确定来了' },
+          { key: 'B', value: '不知道啊' }
+        ]
       });
 
       expect(reanalyzeResponse.statusCode).toBe(200);

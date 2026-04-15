@@ -49,6 +49,8 @@ export const buildServiceApp = (options: BuildServiceAppOptions = {}) => {
   const runtimeMonitor = new RuntimeMonitor({
     browserController,
     runtimeRepository,
+    assistRepository,
+    visionAnalysisService,
     automationStore
   });
 

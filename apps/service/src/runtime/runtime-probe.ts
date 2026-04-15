@@ -26,7 +26,12 @@ const extractCourseTitle = (html: string, pageTitle: string | null) => {
 
 export const probeRuntimeStatus = (snapshot: PageSnapshot): RuntimeStatus => {
   const html = snapshot.html ?? '';
-  const questions = extractQuestionsFromHtml(html, extractCourseTitle(html, snapshot.pageTitle), snapshot.text ?? null);
+  const questions = extractQuestionsFromHtml(
+    html,
+    extractCourseTitle(html, snapshot.pageTitle),
+    snapshot.text ?? null,
+    snapshot.currentUrl
+  );
   const currentUrl = snapshot.currentUrl;
   const loggedIn = Boolean(currentUrl && /yuketang\.cn/.test(currentUrl) && !/login|signin|passport/.test(currentUrl));
 

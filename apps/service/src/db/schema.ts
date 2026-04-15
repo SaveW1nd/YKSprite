@@ -73,6 +73,22 @@ export const questionOptionsTable = sqliteTable('question_options', {
   sortOrder: integer('sort_order').notNull()
 });
 
+export const runtimeExercisesTable = sqliteTable('runtime_exercises', {
+  id: text('id').primaryKey(),
+  lessonId: text('lesson_id'),
+  entryId: text('entry_id').notNull(),
+  status: text('status').notNull(),
+  analysisStatus: text('analysis_status').notNull(),
+  isActive: integer('is_active', { mode: 'boolean' }).notNull(),
+  pageHint: text('page_hint'),
+  remainingHint: text('remaining_hint'),
+  thumbnailUrl: text('thumbnail_url'),
+  exerciseUrl: text('exercise_url'),
+  updatedAt: text('updated_at').notNull(),
+  lastProcessedAt: text('last_processed_at'),
+  lastError: text('last_error')
+});
+
 export const ocrResultsTable = sqliteTable('ocr_results', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   questionRowId: integer('question_row_id').notNull(),
