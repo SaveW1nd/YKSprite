@@ -178,7 +178,7 @@ export class RuntimeMonitor {
     return this.automationStore.executeTask('runtime_scan', 'Scan current lesson page', async () => {
       const snapshot = await this.browserController.inspectPage();
       const status = probeRuntimeStatus(snapshot);
-      const questions = extractQuestionsFromHtml(snapshot.html ?? '', status.courseTitle);
+      const questions = extractQuestionsFromHtml(snapshot.html ?? '', status.courseTitle, snapshot.text ?? null);
       this.runtimeRepository.saveSnapshot(status, questions);
       return {
         status,

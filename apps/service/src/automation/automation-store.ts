@@ -38,7 +38,10 @@ export class AutomationStore {
       listEvents(): EventRecord[];
       addEvent(event: EventRecord): void;
     }
-  ) {}
+  ) {
+    this.taskSeq = this.nextSequence(this.repository?.listTasks().map((task) => task.id) ?? []);
+    this.eventSeq = this.nextSequence(this.repository?.listEvents().map((event) => event.id) ?? []);
+  }
 
   private readonly retryActions = new Map<string, RetryAction>();
   private taskSeq = 1;
@@ -131,5 +134,14 @@ export class AutomationStore {
       description,
       time: new Date().toISOString()
     });
+  }
+
+  private nextSequence(ids: string[]) {
+    const max = ids.reduce((highest, id) => {
+      const match = id.match(/(\d+)$/);
+      return match ? Math.max(highest, Number(match[1])) : highest;
+    }, 0);
+
+    return max + 1;
   }
 }

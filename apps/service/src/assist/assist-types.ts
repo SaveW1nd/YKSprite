@@ -1,6 +1,7 @@
 export type OcrResult = {
   text: string;
   sourceImage: string | null;
+  savedImagePath: string | null;
   confidenceNote: string;
 };
 

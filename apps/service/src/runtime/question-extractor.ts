@@ -8,6 +8,17 @@ const extractOptions = (html: string): QuestionOption[] => {
   }));
 };
 
+const extractExerciseOptions = (html: string): QuestionOption[] => {
+  const optionMatches = [...html.matchAll(/<div[^>]*class=["'][^"']*option[^"']*["'][^>]*>(.*?)<\/div>/gis)];
+  return optionMatches
+    .map((match) => match[1].replace(/<[^>]+>/g, '').trim())
+    .filter(Boolean)
+    .map((value) => ({
+      key: value,
+      value
+    }));
+};
+
 const inferQuestionType = (html: string) => {
   if (/多选/.test(html)) return 'multiple_choice';
   if (/填空/.test(html)) return 'fill_in';
@@ -15,8 +26,35 @@ const inferQuestionType = (html: string) => {
   return 'single_choice';
 };
 
-export const extractQuestionsFromHtml = (html: string, courseTitle: string | null): QuestionRecord[] => {
+const extractExerciseOptionsFromText = (text: string): QuestionOption[] =>
+  text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /^[A-Z]$/.test(line))
+    .map((line) => ({ key: line, value: line }));
+
+export const extractQuestionsFromHtml = (html: string, courseTitle: string | null, visibleText?: string | null): QuestionRecord[] => {
   const questionMatches = [...html.matchAll(/<section[^>]*data-question-id=["']?([^"'>\s]+)["']?[^>]*>(.*?)<\/section>/gis)];
+
+  if (questionMatches.length === 0 && /page-exercise/.test(html)) {
+    const bodyMatch = html.match(/<div[^>]*class=["'][^"']*problem-title[^"']*["'][^>]*>(.*?)<\/div>/is);
+    const body = bodyMatch?.[1]?.replace(/<[^>]+>/g, '').trim() ?? '未识别题干';
+    const options = extractExerciseOptions(html);
+    const fallbackOptions = options.length > 0 ? options : extractExerciseOptionsFromText(visibleText ?? '');
+
+    return [
+      {
+        questionId: 'exercise-current',
+        courseTitle,
+        type: inferQuestionType(html),
+        body,
+        options: fallbackOptions,
+        slideIndex: 0,
+        detectedAt: new Date().toISOString(),
+        source: 'dom'
+      }
+    ];
+  }
 
   return questionMatches.map((match, index) => {
     const sectionHtml = match[2];

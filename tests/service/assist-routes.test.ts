@@ -1,3 +1,4 @@
+import { existsSync, rmSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { buildServiceApp } from '../../apps/service/src/app';
 import type { BrowserController, PageSnapshot, ScreenshotPayload, SessionState } from '../../apps/service/src/browser/browser-controller';
@@ -95,16 +96,19 @@ describe('assist and automation routes', () => {
 
     try {
       const ocrResponse = await app.inject({ method: 'POST', url: '/assist/ocr' });
+      const ocrPayload = ocrResponse.json();
       const draftResponse = await app.inject({ method: 'POST', url: '/assist/draft-answer' });
       const draftGetResponse = await app.inject({ method: 'GET', url: '/assist/draft/q-1' });
       const tasksResponse = await app.inject({ method: 'GET', url: '/tasks' });
       const eventsResponse = await app.inject({ method: 'GET', url: '/events' });
 
       expect(ocrResponse.statusCode).toBe(200);
-      expect(ocrResponse.json()).toMatchObject({
+      expect(ocrPayload).toMatchObject({
         sourceImage: expect.stringContaining('data:image/png;base64,'),
+        savedImagePath: expect.stringContaining('/data/captures/'),
         confidenceNote: 'screenshot-captured-html-fallback'
       });
+      expect(existsSync(ocrPayload.savedImagePath)).toBe(true);
 
       expect(draftResponse.statusCode).toBe(200);
       expect(draftResponse.json()).toMatchObject({
@@ -128,6 +132,7 @@ describe('assist and automation routes', () => {
       });
     } finally {
       await app.close();
+      rmSync('/Users/savewind/Documents/github/YKSprite/data/captures', { recursive: true, force: true });
     }
   });
 });

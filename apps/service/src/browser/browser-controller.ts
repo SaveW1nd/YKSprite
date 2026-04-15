@@ -22,6 +22,7 @@ export type PageSnapshot = {
   currentUrl: string | null;
   pageTitle: string | null;
   html: string | null;
+  text?: string | null;
 };
 
 export type LessonCandidate = {

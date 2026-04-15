@@ -1,6 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BrowserManager } from '../../apps/service/src/browser/browser-manager';
 import { SessionStore } from '../../apps/service/src/browser/session-store';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  document.body.innerHTML = '';
+});
 
 type FakePage = {
   evaluate: ReturnType<typeof vi.fn>;
@@ -111,23 +116,45 @@ describe('BrowserManager', () => {
     const runtime = createRuntime();
     runtime.page.url.mockReturnValue('https://www.yuketang.cn/v2/web/index');
     runtime.page.title.mockResolvedValue('雨课堂');
-    runtime.page.evaluate.mockResolvedValue([
-      {
-        id: 'lesson-1',
-        courseTitle: '高等数学',
-        lessonTitle: '第 12 讲',
-        lessonState: 'in_class',
-        href: 'https://www.yuketang.cn/v2/web/lesson/lesson-1'
-      }
-    ]);
+    runtime.page.evaluate.mockImplementation(async (fn: () => unknown) => fn());
+    document.body.innerHTML = `
+      <div class="onlesson">
+        <div class="jump_lesson__bar box-between">
+          <div class="name-box"><span class="tag">听</span><span class="name">test-test</span></div>
+        </div>
+      </div>
+    `;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          code: 0,
+          data: {
+            onLessonClassrooms: [
+              {
+                classroomId: '31162479',
+                classroomName: 'test',
+                courseId: '5540212',
+                courseName: 'test',
+                lessonId: '1663915035887646208'
+              }
+            ]
+          }
+        })
+      })
+    );
 
     const manager = new BrowserManager({ launchBrowser: runtime.launch });
     await manager.start();
 
     await expect(manager.discoverLessons()).resolves.toEqual([
       expect.objectContaining({
-        id: 'lesson-1',
-        lessonState: 'in_class'
+        id: '1663915035887646208',
+        courseTitle: 'test',
+        lessonTitle: 'test',
+        lessonState: 'in_class',
+        href: expect.stringContaining('/lesson/fullscreen/v3/1663915035887646208')
       })
     ]);
   });

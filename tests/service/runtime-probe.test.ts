@@ -18,6 +18,37 @@ const lessonHtml = `
   </main>
 `;
 
+const exerciseHtml = `
+  <section class="page-exercise">
+    <section class="container box-center">
+      <section class="slide__cmp">
+        <div class="time-box">
+          <div class="timing willEnd">老师可能会随时结束答题</div>
+        </div>
+        <div class="slide__shape problem-title">函数 f(x) 的导数是？</div>
+        <div class="slide__shape option">A</div>
+        <div class="slide__shape option">B</div>
+        <div class="slide__shape submit-btn">提交答案</div>
+        <div class="tips f12 c333">请在题目中点击选项后提交答案</div>
+      </section>
+    </section>
+  </section>
+`;
+
+const exerciseVisibleText = `
+演示文稿1
+课堂动态
+上课啦！
+老师可能会随时结束答题
+
+A
+
+B
+
+提交答案
+请在题目中点击选项后提交答案
+`;
+
 describe('runtime probe', () => {
   it('extracts course and lesson state from a lesson page', () => {
     const status = probeRuntimeStatus({
@@ -65,6 +96,50 @@ describe('runtime probe', () => {
       options: [
         { key: 'A', value: 'x' },
         { key: 'B', value: '2x' }
+      ]
+    });
+  });
+
+  it('detects question state on fullscreen exercise pages', () => {
+    const status = probeRuntimeStatus({
+      currentUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/1664192052646150656/exercise/7',
+      pageTitle: 'test',
+      html: exerciseHtml
+    });
+
+    expect(status).toMatchObject({
+      connected: true,
+      loggedIn: true,
+      courseTitle: 'test',
+      lessonState: 'in_class',
+      questionDetected: true
+    });
+  });
+
+  it('extracts structured question records from fullscreen exercise html', () => {
+    const questions = extractQuestionsFromHtml(exerciseHtml, 'test');
+
+    expect(questions).toHaveLength(1);
+    expect(questions[0]).toMatchObject({
+      courseTitle: 'test',
+      type: 'single_choice',
+      body: '函数 f(x) 的导数是？',
+      options: [
+        { key: 'A', value: 'A' },
+        { key: 'B', value: 'B' }
+      ]
+    });
+  });
+
+  it('falls back to visible text when fullscreen exercise options are not in html nodes', () => {
+    const questions = extractQuestionsFromHtml('<section class="page-exercise"></section>', 'test', exerciseVisibleText);
+
+    expect(questions).toHaveLength(1);
+    expect(questions[0]).toMatchObject({
+      courseTitle: 'test',
+      options: [
+        { key: 'A', value: 'A' },
+        { key: 'B', value: 'B' }
       ]
     });
   });

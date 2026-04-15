@@ -222,7 +222,37 @@ export class BrowserManager implements BrowserController {
       return [];
     }
 
-    return this.page.evaluate(() => {
+    return this.page.evaluate(async () => {
+      const response = await fetch('/api/v3/classroom/on-lesson-upcoming-exam', {
+        credentials: 'include'
+      });
+
+      if (response.ok) {
+        const payload = (await response.json()) as {
+          data?: {
+            onLessonClassrooms?: Array<{
+              classroomId?: string;
+              classroomName?: string;
+              courseName?: string;
+              lessonId?: string;
+            }>;
+          };
+        };
+
+        const lessons = payload.data?.onLessonClassrooms ?? [];
+        if (lessons.length > 0) {
+          return lessons
+            .filter((lesson) => lesson.lessonId)
+            .map((lesson) => ({
+              id: lesson.lessonId!,
+              courseTitle: lesson.courseName ?? lesson.classroomName ?? '未命名课程',
+              lessonTitle: lesson.classroomName ?? lesson.courseName ?? null,
+              lessonState: 'in_class',
+              href: `${location.origin}/lesson/fullscreen/v3/${lesson.lessonId}`
+            } satisfies LessonCandidate));
+        }
+      }
+
       const cards = Array.from(document.querySelectorAll('[data-lesson-id], a[href*="/lesson/"]'));
       return cards.map((node, index) => {
         const text = node.textContent?.trim() ?? '';
@@ -241,7 +271,8 @@ export class BrowserManager implements BrowserController {
     return {
       currentUrl: this.page?.url() ?? null,
       pageTitle: this.page ? await this.page.title().catch(() => null) : null,
-      html: this.page ? await this.page.content().catch(() => null) : null
+      html: this.page ? await this.page.content().catch(() => null) : null,
+      text: this.page ? await this.page.locator('body').innerText().catch(() => null) : null
     };
   }
 

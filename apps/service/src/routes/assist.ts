@@ -19,7 +19,7 @@ export const registerAssistRoutes = (
     return automationStore.executeTask('ocr_extract', 'Extract OCR text from current page', async () => {
       const snapshot = await browserController.inspectPage();
       const runtimeStatus = probeRuntimeStatus(snapshot);
-      const questions = extractQuestionsFromHtml(snapshot.html ?? '', runtimeStatus.courseTitle);
+      const questions = extractQuestionsFromHtml(snapshot.html ?? '', runtimeStatus.courseTitle, snapshot.text ?? null);
       runtimeRepository.saveSnapshot(runtimeStatus, questions);
       const currentQuestion = runtimeRepository.getCurrentQuestion();
       const screenshot = await browserController.captureScreenshot();
@@ -35,7 +35,7 @@ export const registerAssistRoutes = (
     return automationStore.executeTask('draft_generate', 'Generate draft answer from current question', async () => {
       const snapshot = await browserController.inspectPage();
       const runtimeStatus = probeRuntimeStatus(snapshot);
-      const questions = extractQuestionsFromHtml(snapshot.html ?? '', runtimeStatus.courseTitle);
+      const questions = extractQuestionsFromHtml(snapshot.html ?? '', runtimeStatus.courseTitle, snapshot.text ?? null);
       runtimeRepository.saveSnapshot(runtimeStatus, questions);
       const currentQuestion = runtimeRepository.getCurrentQuestion();
       if (!currentQuestion) {

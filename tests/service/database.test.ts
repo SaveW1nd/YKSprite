@@ -2,6 +2,7 @@ import { mkdtempSync, writeFileSync, rmSync, existsSync, mkdirSync } from 'node:
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { AutomationStore } from '../../apps/service/src/automation/automation-store';
 import { createDatabaseClient } from '../../apps/service/src/db/client';
 import { SessionRepository } from '../../apps/service/src/db/session-repository';
 import { TaskRepository } from '../../apps/service/src/db/task-repository';
@@ -94,5 +95,43 @@ describe('database client', () => {
     client.close();
 
     expect(events.map((event) => event.id)).toEqual(['event-2', 'event-1']);
+  });
+
+  it('continues task and event ids after process restart', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'yksprite-db-'));
+    cleanupPaths.push(root);
+    const databasePath = path.join(root, 'data', 'yksprite.db');
+
+    const client = createDatabaseClient({ databasePath });
+    const repository = new TaskRepository(client);
+
+    repository.upsertTask({
+      id: 'task-1',
+      type: 'runtime_scan',
+      status: 'succeeded',
+      startedAt: '2026-04-14T00:00:00.000Z',
+      finishedAt: '2026-04-14T00:00:01.000Z',
+      lastError: null,
+      attempt: 1,
+      payloadSummary: 'Existing task'
+    });
+    repository.addEvent({
+      id: 'event-1',
+      level: 'info',
+      title: 'Existing event',
+      description: 'Before restart',
+      time: '2026-04-14T00:00:00.000Z'
+    });
+
+    const store = new AutomationStore(repository);
+    await store.executeTask('runtime_scan', 'Scan current lesson page', async () => 'ok');
+
+    const tasks = repository.listTasks();
+    const events = repository.listEvents();
+    client.close();
+
+    expect(tasks.some((task) => task.id === 'task-2')).toBe(true);
+    expect(events.some((event) => event.id === 'event-2')).toBe(true);
+    expect(events.some((event) => event.id === 'event-3')).toBe(true);
   });
 });

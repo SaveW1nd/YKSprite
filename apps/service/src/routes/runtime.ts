@@ -16,7 +16,7 @@ export const registerRuntimeRoutes = (
   app.get('/runtime/status', async () => {
     const snapshot = await browserController.inspectPage();
     const status = probeRuntimeStatus(snapshot);
-    const questions = extractQuestionsFromHtml(snapshot.html ?? '', status.courseTitle);
+    const questions = extractQuestionsFromHtml(snapshot.html ?? '', status.courseTitle, snapshot.text ?? null);
     runtimeRepository.saveSnapshot(status, questions);
     return status;
   });
@@ -24,7 +24,7 @@ export const registerRuntimeRoutes = (
   app.get('/runtime/questions', async () => {
     const snapshot = await browserController.inspectPage();
     const status = probeRuntimeStatus(snapshot);
-    const questions = extractQuestionsFromHtml(snapshot.html ?? '', status.courseTitle);
+    const questions = extractQuestionsFromHtml(snapshot.html ?? '', status.courseTitle, snapshot.text ?? null);
     runtimeRepository.saveSnapshot(status, questions);
     return runtimeRepository.listQuestions();
   });
@@ -32,7 +32,7 @@ export const registerRuntimeRoutes = (
   app.get('/runtime/questions/current', async () => {
     const snapshot = await browserController.inspectPage();
     const status = probeRuntimeStatus(snapshot);
-    const questions = extractQuestionsFromHtml(snapshot.html ?? '', status.courseTitle);
+    const questions = extractQuestionsFromHtml(snapshot.html ?? '', status.courseTitle, snapshot.text ?? null);
     runtimeRepository.saveSnapshot(status, questions);
     return runtimeRepository.getCurrentQuestion();
   });
@@ -41,7 +41,7 @@ export const registerRuntimeRoutes = (
     return automationStore.executeTask('runtime_scan', 'Scan current lesson page', async () => {
       const snapshot = await browserController.inspectPage();
       const status = probeRuntimeStatus(snapshot);
-      const questions = extractQuestionsFromHtml(snapshot.html ?? '', status.courseTitle);
+      const questions = extractQuestionsFromHtml(snapshot.html ?? '', status.courseTitle, snapshot.text ?? null);
       runtimeRepository.saveSnapshot(status, questions);
       return {
         status,
