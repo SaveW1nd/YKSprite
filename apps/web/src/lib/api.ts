@@ -62,6 +62,34 @@ export type CurrentQuestion = {
   detectedAt: string;
 };
 
+export type QuestionCapture = {
+  id: number;
+  questionId: string;
+  filePath: string;
+  mimeType: string;
+  width: number | null;
+  height: number | null;
+  sha256: string | null;
+  createdAt: string;
+};
+
+export type VisionAnalysis = {
+  id: number;
+  questionId: string;
+  captureId: number;
+  provider: 'openai' | 'qwen_vl';
+  model: string;
+  promptVersion: string;
+  questionType: 'single_choice' | 'multiple_choice' | 'fill_in' | 'subjective';
+  questionText: string;
+  options: QuestionOption[];
+  suggestedAnswer: string | string[] | null;
+  confidence: 'low' | 'medium' | 'high';
+  reasoningSummary: string;
+  rawResponseJson: string;
+  createdAt: string;
+};
+
 export type TaskRecord = {
   id: string;
   type: string;
@@ -130,6 +158,22 @@ const readMonitorResponse = async (response: Response): Promise<RuntimeMonitorSt
   }
 
   return response.json() as Promise<RuntimeMonitorStatus>;
+};
+
+const readCaptureResponse = async (response: Response): Promise<QuestionCapture | null> => {
+  if (!response.ok) {
+    throw new Error(`Capture request failed with status ${response.status}`);
+  }
+
+  return response.json() as Promise<QuestionCapture | null>;
+};
+
+const readAnalysisResponse = async (response: Response): Promise<VisionAnalysis | null> => {
+  if (!response.ok) {
+    throw new Error(`Analysis request failed with status ${response.status}`);
+  }
+
+  return response.json() as Promise<VisionAnalysis | null>;
 };
 
 const readTasksResponse = async (response: Response): Promise<TaskRecord[]> => {
@@ -213,6 +257,16 @@ export async function stopRuntimeMonitor(): Promise<RuntimeMonitorStatus> {
 export async function fetchCurrentQuestion(): Promise<CurrentQuestion | null> {
   const response = await fetch('/runtime/questions/current');
   return readQuestionResponse(response);
+}
+
+export async function fetchQuestionCapture(questionId: string): Promise<QuestionCapture | null> {
+  const response = await fetch(`/assist/capture/${questionId}`);
+  return readCaptureResponse(response);
+}
+
+export async function fetchQuestionAnalysis(questionId: string): Promise<VisionAnalysis | null> {
+  const response = await fetch(`/assist/analysis/${questionId}`);
+  return readAnalysisResponse(response);
 }
 
 export async function fetchTasks(): Promise<TaskRecord[]> {

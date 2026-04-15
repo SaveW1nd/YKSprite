@@ -181,6 +181,47 @@ const createFetchMock = () =>
       };
     }
 
+    if (input === '/assist/capture/q-1') {
+      return {
+        ok: true,
+        json: async () => ({
+          id: 1,
+          questionId: 'q-1',
+          filePath: '/Users/savewind/Documents/github/YKSprite/data/captures/capture-1.png',
+          mimeType: 'image/png',
+          width: 1180,
+          height: 820,
+          sha256: 'abc123',
+          createdAt: '2026-04-14T00:00:00.000Z'
+        })
+      };
+    }
+
+    if (input === '/assist/analysis/q-1') {
+      return {
+        ok: true,
+        json: async () => ({
+          id: 1,
+          questionId: 'q-1',
+          captureId: 1,
+          provider: 'qwen_vl',
+          model: 'qwen-vl-max',
+          promptVersion: 'single_choice.v1',
+          questionType: 'single_choice',
+          questionText: '你确定来上课了吗',
+          options: [
+            { key: 'A', value: '确定来了' },
+            { key: 'B', value: '不知道啊' }
+          ],
+          suggestedAnswer: 'A',
+          confidence: 'medium',
+          reasoningSummary: '截图中能识别出题干与选项，A 更符合语义。',
+          rawResponseJson: '{}',
+          createdAt: '2026-04-14T00:00:00.000Z'
+        })
+      };
+    }
+
     if (input === '/tasks') {
       return {
         ok: true,
@@ -239,6 +280,10 @@ describe('App shell', () => {
     expect(wrapper.text()).toContain('高等数学 · 课堂中');
     expect(wrapper.text()).toContain('自动监控');
     expect(wrapper.text()).toContain('home_polling');
+    expect(wrapper.text()).toContain('题目截图');
+    expect(wrapper.text()).toContain('建议答案');
+    expect(wrapper.text()).toContain('你确定来上课了吗');
+    expect(wrapper.text()).toContain('qwen_vl');
   });
 
   it('calls browser control endpoints from the action buttons', async () => {
@@ -290,6 +335,8 @@ describe('App shell', () => {
     expect(fetchMock).toHaveBeenCalledWith('/runtime/monitor/start', expect.any(Object));
     expect(fetchMock).toHaveBeenCalledWith('/runtime/monitor/stop', expect.any(Object));
     expect(fetchMock).toHaveBeenCalledWith('/runtime/questions/current');
+    expect(fetchMock).toHaveBeenCalledWith('/assist/capture/q-1');
+    expect(fetchMock).toHaveBeenCalledWith('/assist/analysis/q-1');
     expect(fetchMock).toHaveBeenCalledWith('/tasks');
     expect(fetchMock).toHaveBeenCalledWith('/events');
   });

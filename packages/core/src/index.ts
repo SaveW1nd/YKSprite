@@ -1,3 +1,3 @@
-export * from './problem';
-export * from './prompt';
-export * from './answer-parser';
+export * from './problem.js';
+export * from './prompt.js';
+export * from './answer-parser.js';

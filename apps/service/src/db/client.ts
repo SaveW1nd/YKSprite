@@ -112,6 +112,36 @@ const applyMigrations = (sqlite: Database.Database) => {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS question_captures (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      question_row_id INTEGER NOT NULL,
+      source_type TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      width INTEGER,
+      height INTEGER,
+      sha256 TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS vision_analyses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      question_row_id INTEGER NOT NULL,
+      capture_id INTEGER NOT NULL,
+      provider TEXT NOT NULL,
+      model TEXT NOT NULL,
+      prompt_version TEXT NOT NULL,
+      question_type TEXT NOT NULL,
+      question_text TEXT NOT NULL,
+      options_json TEXT NOT NULL,
+      suggested_answer_json TEXT,
+      confidence TEXT NOT NULL,
+      reasoning_summary TEXT NOT NULL,
+      raw_response_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      is_current INTEGER NOT NULL DEFAULT 1
+    );
+
     CREATE TABLE IF NOT EXISTS draft_answers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       question_row_id INTEGER NOT NULL,

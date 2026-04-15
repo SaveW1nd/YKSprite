@@ -17,9 +17,11 @@ import { registerHealthRoute } from './routes/health.js';
 import { registerRuntimeRoutes } from './routes/runtime.js';
 import { registerWebShellRoutes } from './routes/web-shell.js';
 import { RuntimeMonitor } from './runtime/runtime-monitor.js';
+import { VisionAnalysisService, type VisionAnalysisServiceLike } from './assist/vision-analysis-service.js';
 
 type BuildServiceAppOptions = {
   browserController?: BrowserController;
+  visionAnalysisService?: VisionAnalysisServiceLike;
   webDistDir?: string;
 };
 
@@ -42,6 +44,7 @@ export const buildServiceApp = (options: BuildServiceAppOptions = {}) => {
     new BrowserManager({
       sessionStore: new SessionStore({ repository: sessionRepository })
     });
+  const visionAnalysisService = options.visionAnalysisService ?? new VisionAnalysisService(assistRepository);
   const automationStore = new AutomationStore(taskRepository);
   const runtimeMonitor = new RuntimeMonitor({
     browserController,
@@ -52,7 +55,7 @@ export const buildServiceApp = (options: BuildServiceAppOptions = {}) => {
   registerHealthRoute(app);
   registerBrowserRoutes(app, browserController);
   registerRuntimeRoutes(app, browserController, runtimeRepository, automationStore, runtimeMonitor);
-  registerAssistRoutes(app, browserController, automationStore, runtimeRepository, assistRepository);
+  registerAssistRoutes(app, browserController, automationStore, runtimeRepository, assistRepository, visionAnalysisService);
   registerAutomationRoutes(app, automationStore);
   registerWebShellRoutes(app, options.webDistDir ?? defaultWebDistDir());
 

@@ -3,7 +3,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AutomationStore } from '../../apps/service/src/automation/automation-store';
+import { AssistRepository } from '../../apps/service/src/db/assist-repository';
 import { createDatabaseClient } from '../../apps/service/src/db/client';
+import { questionsTable } from '../../apps/service/src/db/schema';
 import { SessionRepository } from '../../apps/service/src/db/session-repository';
 import { TaskRepository } from '../../apps/service/src/db/task-repository';
 
@@ -133,5 +135,60 @@ describe('database client', () => {
     expect(tasks.some((task) => task.id === 'task-2')).toBe(true);
     expect(events.some((event) => event.id === 'event-2')).toBe(true);
     expect(events.some((event) => event.id === 'event-3')).toBe(true);
+  });
+
+  it('stores a saved capture and current AI analysis for a question', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'yksprite-db-'));
+    cleanupPaths.push(root);
+    const databasePath = path.join(root, 'data', 'yksprite.db');
+
+    const client = createDatabaseClient({ databasePath });
+    client.db.insert(questionsTable).values({
+      questionId: 'q-1',
+      courseTitle: '高等数学',
+      type: 'single_choice',
+      body: '函数 f(x) 的导数是？',
+      slideIndex: 0,
+      source: 'dom',
+      detectedAt: '2026-04-14T00:00:00.000Z',
+      runtimeSnapshotId: 1
+    }).run();
+
+    const repository = new AssistRepository(client);
+    const captureId = repository.saveQuestionCapture({
+      questionRowId: 1,
+      sourceType: 'runtime_question',
+      filePath: '/tmp/capture.png',
+      mimeType: 'image/png',
+      width: 1180,
+      height: 820,
+      sha256: 'abc123'
+    });
+
+    repository.saveVisionAnalysis({
+      questionRowId: 1,
+      captureId,
+      provider: 'openai',
+      model: 'gpt-4.1-mini',
+      promptVersion: 'single_choice.v1',
+      questionType: 'single_choice',
+      questionText: '函数 f(x) 的导数是？',
+      options: [{ key: 'A', value: 'x' }],
+      suggestedAnswer: 'A',
+      confidence: 'medium',
+      reasoningSummary: '截图中的选项 A 与题意最匹配。',
+      rawResponseJson: '{}'
+    });
+
+    expect(repository.getLatestCaptureByQuestionId('q-1')).toMatchObject({
+      filePath: '/tmp/capture.png',
+      mimeType: 'image/png'
+    });
+    expect(repository.getCurrentAnalysisByQuestionId('q-1')).toMatchObject({
+      provider: 'openai',
+      suggestedAnswer: 'A'
+    });
+
+    client.close();
   });
 });

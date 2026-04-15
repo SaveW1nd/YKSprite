@@ -13,6 +13,8 @@ import {
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import {
   fetchBrowserStatus,
+  fetchQuestionAnalysis,
+  fetchQuestionCapture,
   fetchCurrentQuestion,
   fetchEvents,
   fetchHealth,
@@ -30,10 +32,12 @@ import {
   type CurrentQuestion,
   type EventRecord,
   type HealthResponse,
+  type QuestionCapture,
   type RuntimeMonitorStatus,
   type RuntimeStatus,
   type SessionState,
-  type TaskRecord
+  type TaskRecord,
+  type VisionAnalysis
 } from './lib/api';
 
 type HealthItem = {
@@ -90,6 +94,8 @@ const monitor = ref<RuntimeMonitorStatus>({
 });
 
 const currentQuestion = ref<CurrentQuestion | null>(null);
+const currentCapture = ref<QuestionCapture | null>(null);
+const currentAnalysis = ref<VisionAnalysis | null>(null);
 const tasks = ref<TaskRecord[]>([]);
 const events = ref<EventRecord[]>([]);
 
@@ -152,6 +158,13 @@ const monitorSummary = computed(() => {
   if (monitor.value.phase === 'home_polling') return '正在首页轮询进行中的课堂';
   if (monitor.value.phase === 'idle') return '监控未启动';
   return '等待下一轮监控';
+});
+
+const analysisAnswerLabel = computed(() => {
+  if (!currentAnalysis.value?.suggestedAnswer) return '待分析';
+  return Array.isArray(currentAnalysis.value.suggestedAnswer)
+    ? currentAnalysis.value.suggestedAnswer.join(', ')
+    : currentAnalysis.value.suggestedAnswer;
 });
 
 const browserToneClass = computed(() => {
@@ -239,8 +252,21 @@ const syncMonitor = async () => {
 const syncCurrentQuestion = async () => {
   try {
     currentQuestion.value = await fetchCurrentQuestion();
+    if (currentQuestion.value?.questionId) {
+      const [capture, analysis] = await Promise.all([
+        fetchQuestionCapture(currentQuestion.value.questionId),
+        fetchQuestionAnalysis(currentQuestion.value.questionId)
+      ]);
+      currentCapture.value = capture;
+      currentAnalysis.value = analysis;
+    } else {
+      currentCapture.value = null;
+      currentAnalysis.value = null;
+    }
   } catch {
     currentQuestion.value = null;
+    currentCapture.value = null;
+    currentAnalysis.value = null;
   }
 };
 
@@ -667,6 +693,19 @@ const healthToneClass = (tone: HealthItem['tone']) => {
                     停止自动监控
                   </button>
                 </div>
+              </article>
+              <article class="rounded-[22px] bg-slate-50 px-4 py-4 ring-1 ring-slate-200">
+                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-shell-700">题目截图</p>
+                <strong class="mt-3 block font-display text-lg font-semibold tracking-tight text-shell-900">
+                  {{ currentCapture?.questionId ?? '暂无截图' }}
+                </strong>
+                <p class="mt-2 text-sm text-shell-700">{{ currentCapture?.filePath ?? '当前题目还没有保存截图' }}</p>
+              </article>
+              <article class="rounded-[22px] bg-slate-50 px-4 py-4 ring-1 ring-slate-200">
+                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-shell-700">建议答案</p>
+                <strong class="mt-3 block font-display text-lg font-semibold tracking-tight text-shell-900">{{ analysisAnswerLabel }}</strong>
+                <p class="mt-2 text-sm text-shell-700">{{ currentAnalysis?.questionText ?? '暂无题干识别结果' }}</p>
+                <p class="mt-2 text-sm text-shell-700">{{ currentAnalysis?.provider ?? '未分析' }} · {{ currentAnalysis?.reasoningSummary ?? '暂无分析理由' }}</p>
               </article>
               <article v-for="item in healthCards" :key="item.label" :class="healthToneClass(item.tone)" class="rounded-[22px] px-4 py-4">
                 <p class="text-xs font-semibold uppercase tracking-[0.18em]">{{ item.label }}</p>

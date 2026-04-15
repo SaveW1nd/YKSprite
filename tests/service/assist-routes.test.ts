@@ -75,6 +75,15 @@ const createBrowserController = (): BrowserController => ({
   }),
   getSessionState: async () => sessionState,
   saveSession: async () => sessionState,
+  navigateHome: async () => ({
+    status: 'running',
+    engine: 'chromium',
+    headless: true,
+    mode: 'headless',
+    startedAt: '2026-04-14T00:00:00.000Z',
+    pageUrl: 'https://www.yuketang.cn/v2/web/index',
+    lastError: null
+  }),
   navigate: async (url: string) => ({
     status: 'running',
     engine: 'chromium',
@@ -88,10 +97,33 @@ const createBrowserController = (): BrowserController => ({
   captureScreenshot: async () => screenshot
 });
 
+const createVisionAnalysisService = () => ({
+  analyzeQuestionImage: async ({ questionId, provider }: { questionId: string; provider?: 'openai' | 'qwen_vl' }) => ({
+    id: 1,
+    questionId,
+    captureId: 1,
+    provider: provider ?? 'qwen_vl',
+    model: provider === 'openai' ? 'gpt-4.1-mini' : 'qwen-vl-max',
+    promptVersion: 'single_choice.v1',
+    questionType: 'single_choice',
+    questionText: '你确定来上课了吗',
+    options: [
+      { key: 'A', value: '确定来了' },
+      { key: 'B', value: '不知道啊' }
+    ],
+    suggestedAnswer: 'A',
+    confidence: 'medium',
+    reasoningSummary: '截图中能识别出题干与选项，A 更符合语义。',
+    rawResponseJson: '{}',
+    createdAt: '2026-04-14T00:00:00.000Z'
+  })
+});
+
 describe('assist and automation routes', () => {
   it('returns OCR, draft answer, tasks, and events', async () => {
     const app = buildServiceApp({
-      browserController: createBrowserController()
+      browserController: createBrowserController(),
+      visionAnalysisService: createVisionAnalysisService()
     });
 
     try {
@@ -99,6 +131,13 @@ describe('assist and automation routes', () => {
       const ocrPayload = ocrResponse.json();
       const draftResponse = await app.inject({ method: 'POST', url: '/assist/draft-answer' });
       const draftGetResponse = await app.inject({ method: 'GET', url: '/assist/draft/q-1' });
+      const captureResponse = await app.inject({ method: 'GET', url: '/assist/capture/q-1' });
+      const analysisResponse = await app.inject({ method: 'GET', url: '/assist/analysis/q-1' });
+      const reanalyzeResponse = await app.inject({
+        method: 'POST',
+        url: '/assist/analyze-image',
+        payload: { questionId: 'q-1', provider: 'openai' }
+      });
       const tasksResponse = await app.inject({ method: 'GET', url: '/tasks' });
       const eventsResponse = await app.inject({ method: 'GET', url: '/events' });
 
@@ -109,6 +148,28 @@ describe('assist and automation routes', () => {
         confidenceNote: 'screenshot-captured-html-fallback'
       });
       expect(existsSync(ocrPayload.savedImagePath)).toBe(true);
+
+      expect(captureResponse.statusCode).toBe(200);
+      expect(captureResponse.json()).toMatchObject({
+        questionId: 'q-1',
+        filePath: expect.stringContaining('/data/captures/')
+      });
+
+      expect(analysisResponse.statusCode).toBe(200);
+      expect(analysisResponse.json()).toMatchObject({
+        provider: 'qwen_vl',
+        questionType: 'single_choice',
+        questionText: '你确定来上课了吗',
+        suggestedAnswer: 'A',
+        confidence: 'medium',
+        reasoningSummary: expect.any(String)
+      });
+
+      expect(reanalyzeResponse.statusCode).toBe(200);
+      expect(reanalyzeResponse.json()).toMatchObject({
+        provider: 'openai',
+        suggestedAnswer: 'A'
+      });
 
       expect(draftResponse.statusCode).toBe(200);
       expect(draftResponse.json()).toMatchObject({

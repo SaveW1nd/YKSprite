@@ -82,6 +82,36 @@ export const ocrResultsTable = sqliteTable('ocr_results', {
   createdAt: text('created_at').notNull()
 });
 
+export const questionCapturesTable = sqliteTable('question_captures', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  questionRowId: integer('question_row_id').notNull(),
+  sourceType: text('source_type').notNull(),
+  filePath: text('file_path').notNull(),
+  mimeType: text('mime_type').notNull(),
+  width: integer('width'),
+  height: integer('height'),
+  sha256: text('sha256'),
+  createdAt: text('created_at').notNull()
+});
+
+export const visionAnalysesTable = sqliteTable('vision_analyses', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  questionRowId: integer('question_row_id').notNull(),
+  captureId: integer('capture_id').notNull(),
+  provider: text('provider').notNull(),
+  model: text('model').notNull(),
+  promptVersion: text('prompt_version').notNull(),
+  questionType: text('question_type').notNull(),
+  questionText: text('question_text').notNull(),
+  optionsJson: text('options_json').notNull(),
+  suggestedAnswerJson: text('suggested_answer_json'),
+  confidence: text('confidence').notNull(),
+  reasoningSummary: text('reasoning_summary').notNull(),
+  rawResponseJson: text('raw_response_json').notNull(),
+  createdAt: text('created_at').notNull(),
+  isCurrent: integer('is_current', { mode: 'boolean' }).notNull().default(true)
+});
+
 export const draftAnswersTable = sqliteTable('draft_answers', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   questionRowId: integer('question_row_id').notNull(),
