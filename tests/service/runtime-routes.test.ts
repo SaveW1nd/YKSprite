@@ -138,6 +138,7 @@ const createBrowserController = (
     },
     discoverLessons: async () => options.discoveredLessons ?? activeLessons,
     listExerciseEntries: async () => options.listedExercises ?? exerciseEntries,
+    openCurrentExercise: async () => null,
     inspectPage: async () => currentSnapshot,
     captureScreenshot: async () => ({
       mimeType: 'image/png',
@@ -154,6 +155,8 @@ const createBrowserController = (
         { key: 'A', value: 'x' },
         { key: 'B', value: '2x' }
       ],
+      imageUrl: null,
+      imageThumbnailUrl: null,
       isComplete: false,
       routePath: '/v3/lesson-1/exercise/1'
     }),
@@ -482,6 +485,45 @@ describe('runtime routes', () => {
     try {
       await app.inject({ method: 'POST', url: '/runtime/monitor/start' });
       expect(navigatedUrls).toContain('https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/10');
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('surfaces the current exercise when timeline entries are temporarily empty', async () => {
+    const app = buildServiceApp({
+      browserController: createBrowserController({
+        inspectSnapshot: {
+          currentUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/2',
+          pageTitle: '高等数学',
+          html: `
+            <section class="page-exercise">
+              <div class="problem-title">函数 f(x) 的导数是？</div>
+              <div class="option">A</div>
+              <div class="option">B</div>
+            </section>
+          `,
+          text: '函数 f(x) 的导数是？\nA\nB\n提交答案'
+        },
+        listedExercises: []
+      }),
+      visionAnalysisService: createVisionAnalysisService()
+    });
+
+    try {
+      await app.inject({ method: 'POST', url: '/runtime/monitor/start' });
+      const response = await app.inject({ method: 'GET', url: '/runtime/exercises' });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual([
+        expect.objectContaining({
+          entryId: 'current-exercise-2',
+          lessonId: 'lesson-1',
+          status: 'unanswered',
+          isActive: true,
+          exerciseUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/2'
+        })
+      ]);
     } finally {
       await app.close();
     }

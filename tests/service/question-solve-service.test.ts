@@ -7,7 +7,18 @@ const createAssistRepository = (analysis: {
   questionText?: string;
   options?: Array<{ key: string; value: string }>;
   confidence?: 'low' | 'medium' | 'high';
+  sourceQuestionType?: 'single_choice' | 'multiple_choice' | 'fill_in' | 'subjective';
+  sourceQuestionBody?: string;
+  sourceQuestionOptions?: Array<{ key: string; value: string }>;
 }) => ({
+  getQuestionByQuestionId: () => ({
+    id: 1,
+    questionId: 'q-1',
+    courseTitle: 'test',
+    type: analysis.sourceQuestionType ?? analysis.questionType,
+    body: analysis.sourceQuestionBody ?? analysis.questionText ?? '默认题干',
+    options: analysis.sourceQuestionOptions ?? analysis.options ?? []
+  }),
   getCurrentAnalysisByQuestionId: () => ({
     id: 1,
     questionId: 'q-1',
@@ -47,6 +58,7 @@ describe('QuestionSolveService', () => {
     );
 
     await expect(service.solveQuestion('q-1')).resolves.toMatchObject({
+      isSubmittable: true,
       submitPayloadResult: ['B']
     });
   });
@@ -61,6 +73,7 @@ describe('QuestionSolveService', () => {
     );
 
     await expect(service.solveQuestion('q-1')).resolves.toMatchObject({
+      isSubmittable: true,
       submitPayloadResult: ['A', 'C']
     });
   });
@@ -75,6 +88,7 @@ describe('QuestionSolveService', () => {
     );
 
     await expect(service.solveQuestion('q-1')).resolves.toMatchObject({
+      isSubmittable: true,
       submitPayloadResult: ['第一空', '第二空']
     });
   });
@@ -90,7 +104,68 @@ describe('QuestionSolveService', () => {
     );
 
     await expect(service.solveQuestion('q-1')).resolves.toMatchObject({
-      submitPayloadResult: '请简述你的看法'
+      isSubmittable: true,
+      submitPayloadResult: {
+        content: '请简述你的看法',
+        pics: [
+          {
+            pic: '',
+            thumb: ''
+          }
+        ]
+      }
+    });
+  });
+
+  it('uses the source question type when the model misclassifies a subjective question', async () => {
+    const service = new QuestionSolveService(
+      createAssistRepository({
+        questionType: 'single_choice',
+        sourceQuestionType: 'subjective',
+        suggestedAnswer: null,
+        questionText: '模型误判',
+        sourceQuestionBody: '请描述你的看法'
+      }) as never,
+      noopVisionService
+    );
+
+    await expect(service.solveQuestion('q-1')).resolves.toMatchObject({
+      isSubmittable: true,
+      submitPayloadResult: {
+        content: '请描述你的看法',
+        pics: [
+          {
+            pic: '',
+            thumb: ''
+          }
+        ]
+      }
+    });
+  });
+
+  it('marks subjective answers as not submittable when the model returns an empty answer and there is no fallback text', async () => {
+    const service = new QuestionSolveService(
+      createAssistRepository({
+        questionType: 'subjective',
+        sourceQuestionType: 'subjective',
+        suggestedAnswer: '',
+        questionText: '',
+        sourceQuestionBody: ''
+      }) as never,
+      noopVisionService
+    );
+
+    await expect(service.solveQuestion('q-1')).resolves.toMatchObject({
+      isSubmittable: false,
+      submitPayloadResult: {
+        content: '',
+        pics: [
+          {
+            pic: '',
+            thumb: ''
+          }
+        ]
+      }
     });
   });
 });

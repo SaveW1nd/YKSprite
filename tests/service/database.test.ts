@@ -270,4 +270,57 @@ describe('database client', () => {
 
     client.close();
   });
+
+  it('updates the persisted question type when runtime metadata is more accurate', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'yksprite-db-'));
+    cleanupPaths.push(root);
+    const databasePath = path.join(root, 'data', 'yksprite.db');
+
+    const client = createDatabaseClient({ databasePath });
+    const repository = new RuntimeRepository(client);
+
+    repository.saveSnapshot(
+      {
+        connected: true,
+        loggedIn: true,
+        courseTitle: 'test',
+        lessonState: 'in_class',
+        checkinAvailable: false,
+        questionDetected: true,
+        currentUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/20',
+        pageTitle: 'test',
+        lastScannedAt: '2026-04-15T00:00:00.000Z'
+      },
+      [
+        {
+          questionId: 'exercise-20',
+          courseTitle: 'test',
+          type: 'single_choice',
+          body: '',
+          options: [
+            { key: 'A', value: 'A' },
+            { key: 'B', value: 'B' }
+          ],
+          slideIndex: 0,
+          detectedAt: '2026-04-15T00:00:00.000Z',
+          source: 'dom'
+        }
+      ]
+    );
+
+    const currentQuestion = repository.getCurrentQuestion();
+    expect(currentQuestion).toMatchObject({
+      questionId: 'exercise-20',
+      type: 'single_choice'
+    });
+
+    repository.updateQuestionType(currentQuestion!.id, 'multiple_choice');
+
+    expect(repository.getCurrentQuestion()).toMatchObject({
+      questionId: 'exercise-20',
+      type: 'multiple_choice'
+    });
+
+    client.close();
+  });
 });

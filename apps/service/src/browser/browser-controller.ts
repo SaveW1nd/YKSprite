@@ -57,6 +57,8 @@ export type ExerciseRuntimeState = {
   pageIndex: number | null;
   questionText: string;
   options: Array<{ key: string; value: string }>;
+  imageUrl: string | null;
+  imageThumbnailUrl: string | null;
   isComplete: boolean;
   routePath: string | null;
 };
@@ -86,6 +88,7 @@ export interface BrowserController {
   navigate(url: string): Promise<BrowserStatus>;
   discoverLessons(): Promise<LessonCandidate[]>;
   listExerciseEntries(): Promise<ExerciseEntry[]>;
+  openCurrentExercise(): Promise<string | null>;
   inspectPage(): Promise<PageSnapshot>;
   captureScreenshot(): Promise<ScreenshotPayload>;
   ensureExercisePageReady(url: string): Promise<ExerciseRuntimeState>;

@@ -43,14 +43,41 @@ const normalizeFillIn = (suggestedAnswer: string | string[] | null, fallbackText
 const normalizeSubjective = (suggestedAnswer: string | string[] | null, fallbackText: string) => {
   if (Array.isArray(suggestedAnswer)) {
     const joined = suggestedAnswer.map((value) => String(value).trim()).filter(Boolean).join('\n');
-    return joined || fallbackText || '待确认';
+    return joined || fallbackText || '';
   }
 
   if (typeof suggestedAnswer === 'string' && suggestedAnswer.trim()) {
     return suggestedAnswer.trim();
   }
 
-  return fallbackText || '待确认';
+  return fallbackText || '';
+};
+
+const buildSubjectivePayload = (content: string) => ({
+  content,
+  pics: [
+    {
+      pic: '',
+      thumb: ''
+    }
+  ]
+});
+
+const isPayloadSubmittable = (payload: string[] | string | Record<string, unknown>) => {
+  if (Array.isArray(payload)) {
+    return payload.length > 0;
+  }
+
+  if (typeof payload === 'string') {
+    return payload.trim().length > 0;
+  }
+
+  if (payload && typeof payload === 'object') {
+    const content = 'content' in payload && typeof payload.content === 'string' ? payload.content.trim() : '';
+    return content.length > 0;
+  }
+
+  return false;
 };
 
 export class QuestionSolveService {
@@ -60,14 +87,16 @@ export class QuestionSolveService {
   ) {}
 
   async solveQuestion(questionId: string): Promise<SolvedAnswer> {
+    const sourceQuestion = this.assistRepository.getQuestionByQuestionId(questionId);
     const analysis =
       this.assistRepository.getCurrentAnalysisByQuestionId(questionId) ??
       (await this.visionAnalysisService.analyzeQuestionImage({ questionId }));
-    const fallbackOption = analysis.options[0]?.key ?? null;
-    const fallbackText = analysis.questionText.trim() || analysis.reasoningSummary.trim();
+    const questionType = sourceQuestion?.type ?? analysis.questionType;
+    const fallbackOption = sourceQuestion?.options[0]?.key ?? analysis.options[0]?.key ?? null;
+    const fallbackText = sourceQuestion?.body?.trim() || analysis.questionText.trim();
 
     let submitPayloadResult: string[] | string | Record<string, unknown>;
-    switch (analysis.questionType) {
+    switch (questionType) {
       case 'multiple_choice':
         submitPayloadResult = normalizeMultipleChoice(analysis.suggestedAnswer, fallbackOption);
         break;
@@ -75,7 +104,7 @@ export class QuestionSolveService {
         submitPayloadResult = normalizeFillIn(analysis.suggestedAnswer, fallbackText);
         break;
       case 'subjective':
-        submitPayloadResult = normalizeSubjective(analysis.suggestedAnswer, fallbackText);
+        submitPayloadResult = buildSubjectivePayload(normalizeSubjective(analysis.suggestedAnswer, fallbackText));
         break;
       case 'single_choice':
       default:
@@ -90,7 +119,8 @@ export class QuestionSolveService {
       reasoningSummary: analysis.reasoningSummary,
       answerJson: stringifyAnswer(submitPayloadResult),
       submitPayloadResult,
-      rawResponseJson: analysis.rawResponseJson
+      rawResponseJson: analysis.rawResponseJson,
+      isSubmittable: isPayloadSubmittable(submitPayloadResult)
     };
   }
 }

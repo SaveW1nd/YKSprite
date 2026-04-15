@@ -18,7 +18,7 @@ export type QuestionCapture = {
 
 export type QuestionCaptureRecord = {
   questionRowId: number;
-  sourceType: 'runtime_question';
+  sourceType: 'runtime_question' | 'runtime_ppt';
   filePath: string;
   mimeType: string;
   width: number | null;

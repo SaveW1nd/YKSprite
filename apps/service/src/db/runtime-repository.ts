@@ -110,6 +110,14 @@ export class RuntimeRepository {
     };
   }
 
+  updateQuestionType(questionRowId: number, type: string) {
+    this.database.db
+      .update(questionsTable)
+      .set({ type })
+      .where(eq(questionsTable.id, questionRowId))
+      .run();
+  }
+
   replaceExerciseEntries(lessonId: string | null, entries: ExerciseQueueEntry[]) {
     const updatedAt = new Date().toISOString();
     const existing = this.listExerciseEntries().reduce<Record<string, ExerciseQueueEntry>>((acc, entry) => {

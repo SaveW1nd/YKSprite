@@ -10,6 +10,20 @@ import { probeRuntimeStatus } from './runtime-probe.js';
 
 const HOME_PAGE_URL = 'https://www.yuketang.cn/v2/web/index';
 
+const buildCurrentExerciseEntry = (currentUrl: string, lessonId: string) => {
+  const exerciseIndex = currentUrl.match(/\/exercise\/([^/?#]+)/)?.[1] ?? 'current';
+  return {
+    entryId: `current-exercise-${exerciseIndex}`,
+    lessonId,
+    status: 'unanswered' as const,
+    isActive: true,
+    pageHint: null,
+    remainingHint: null,
+    thumbnailUrl: null,
+    exerciseUrl: currentUrl
+  };
+};
+
 type RuntimeMonitorOptions = {
   browserController: BrowserController;
   runtimeRepository: RuntimeRepository;
@@ -103,8 +117,17 @@ export class RuntimeMonitor {
       const current = await this.readCurrentPage();
       if (current.status.lessonState === 'in_class') {
         const exercises = await this.browserController.listExerciseEntries();
-        const currentLessonId = exercises[0]?.lessonId ?? this.status.currentLessonId;
-        this.runtimeRepository.replaceExerciseEntries(currentLessonId, exercises);
+        const inferredLessonId =
+          current.status.currentUrl?.match(/\/lesson\/fullscreen\/v3\/([^/?#]+)/)?.[1] ?? this.status.currentLessonId;
+        const currentLessonId = exercises[0]?.lessonId ?? inferredLessonId;
+        const effectiveExercises =
+          exercises.length === 0 &&
+          currentLessonId &&
+          current.status.currentUrl &&
+          /\/(exercise|subjective)\//.test(current.status.currentUrl)
+            ? [buildCurrentExerciseEntry(current.status.currentUrl, currentLessonId)]
+            : exercises;
+        this.runtimeRepository.replaceExerciseEntries(currentLessonId, effectiveExercises);
         const lessonEntries = this.runtimeRepository
           .listExerciseEntries()
           .filter((entry) => entry.lessonId === currentLessonId);

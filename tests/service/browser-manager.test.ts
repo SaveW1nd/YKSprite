@@ -18,6 +18,7 @@ type FakePage = {
   };
   off: ReturnType<typeof vi.fn>;
   on: ReturnType<typeof vi.fn>;
+  waitForFunction: ReturnType<typeof vi.fn>;
   waitForTimeout: ReturnType<typeof vi.fn>;
   title: ReturnType<typeof vi.fn>;
   url: ReturnType<typeof vi.fn>;
@@ -47,6 +48,7 @@ const createRuntime = () => {
     },
     off: vi.fn(),
     on: vi.fn(),
+    waitForFunction: vi.fn().mockResolvedValue(undefined),
     waitForTimeout: vi.fn().mockResolvedValue(undefined),
     title: vi.fn().mockResolvedValue('雨课堂'),
     url: vi.fn().mockReturnValue('https://www.yuketang.cn')
@@ -240,6 +242,47 @@ describe('BrowserManager', () => {
 
   it('stabilizes an exercise page and reads runtime state from vue', async () => {
     const runtime = createRuntime();
+    runtime.page.url.mockReturnValue('about:blank');
+    runtime.page.evaluate
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        lessonId: 'lesson-1',
+        exerciseIndex: '13',
+        problemId: 'problem-13',
+        problemType: 1,
+        pageIndex: 6,
+        questionText: '13 题题干',
+        options: [
+          { key: 'A', value: 'A' },
+          { key: 'B', value: 'B' }
+        ],
+        imageUrl: null,
+        imageThumbnailUrl: null,
+        isComplete: false,
+        routePath: '/v3/lesson-1/exercise/13'
+      });
+    const manager = new BrowserManager({ launchBrowser: runtime.launch });
+
+    await manager.start();
+    runtime.page.goto.mockClear();
+    const state = await manager.ensureExercisePageReady('https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/13');
+
+    expect(runtime.page.goto).toHaveBeenCalledWith(
+      'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/13',
+      { waitUntil: 'domcontentloaded' }
+    );
+    expect(runtime.page.waitForFunction).toHaveBeenCalled();
+    expect(runtime.page.mouse.click).toHaveBeenCalled();
+    expect(runtime.page.keyboard.press).toHaveBeenCalledWith('Tab');
+    expect(state).toMatchObject({
+      problemId: 'problem-13',
+      exerciseIndex: '13'
+    });
+  });
+
+  it('does not navigate again when already on the target exercise page', async () => {
+    const runtime = createRuntime();
+    runtime.page.url.mockReturnValue('https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/13');
     runtime.page.evaluate.mockResolvedValue({
       lessonId: 'lesson-1',
       exerciseIndex: '13',
@@ -251,22 +294,56 @@ describe('BrowserManager', () => {
         { key: 'A', value: 'A' },
         { key: 'B', value: 'B' }
       ],
+      imageUrl: null,
+      imageThumbnailUrl: null,
       isComplete: false,
       routePath: '/v3/lesson-1/exercise/13'
     });
     const manager = new BrowserManager({ launchBrowser: runtime.launch });
 
     await manager.start();
+    runtime.page.goto.mockClear();
     const state = await manager.ensureExercisePageReady('https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/13');
 
-    expect(runtime.page.goto).toHaveBeenCalledWith(
-      'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/13',
-      { waitUntil: 'domcontentloaded' }
-    );
-    expect(runtime.page.mouse.click).toHaveBeenCalled();
-    expect(runtime.page.keyboard.press).toHaveBeenCalledWith('Tab');
+    expect(runtime.page.goto).not.toHaveBeenCalled();
+    expect(runtime.page.waitForFunction).toHaveBeenCalled();
     expect(state).toMatchObject({
-      problemId: 'problem-13',
+      problemId: 'problem-13'
+    });
+  });
+
+  it('prefers clicking the lesson timeline card before falling back to navigation', async () => {
+    const runtime = createRuntime();
+    runtime.page.url.mockReturnValue('https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1');
+    runtime.page.evaluate
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce({
+        lessonId: 'lesson-1',
+        exerciseIndex: '13',
+        problemId: 'problem-13',
+        problemType: 1,
+        pageIndex: 6,
+        questionText: '13 题题干',
+        options: [
+          { key: 'A', value: 'A' },
+          { key: 'B', value: 'B' }
+        ],
+        imageUrl: null,
+        imageThumbnailUrl: null,
+        isComplete: false,
+        routePath: '/v3/lesson-1/exercise/13'
+      });
+    const manager = new BrowserManager({ launchBrowser: runtime.launch });
+
+    await manager.start();
+    runtime.page.goto.mockClear();
+    const state = await manager.ensureExercisePageReady('https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/13');
+
+    expect(runtime.page.evaluate).toHaveBeenCalledTimes(3);
+    expect(runtime.page.waitForFunction).toHaveBeenCalled();
+    expect(runtime.page.goto).not.toHaveBeenCalled();
+    expect(state).toMatchObject({
       exerciseIndex: '13'
     });
   });
@@ -298,6 +375,34 @@ describe('BrowserManager', () => {
     expect(result).toMatchObject({
       ok: true,
       code: 0
+    });
+  });
+
+  it('reads runtime state from subjective routes', async () => {
+    const runtime = createRuntime();
+    runtime.page.url.mockReturnValue('https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/subjective/2');
+    runtime.page.evaluate.mockResolvedValue({
+      lessonId: 'lesson-1',
+      exerciseIndex: '2',
+      problemId: 'problem-2',
+      problemType: 5,
+      pageIndex: 6,
+      questionText: '请简述牛顿第一定律',
+      options: [],
+      imageUrl: null,
+      imageThumbnailUrl: null,
+      isComplete: false,
+      routePath: '/v3/lesson-1/subjective/2'
+    });
+    const manager = new BrowserManager({ launchBrowser: runtime.launch });
+
+    await manager.start();
+    const state = await manager.readExerciseRuntimeState();
+
+    expect(state).toMatchObject({
+      exerciseIndex: '2',
+      problemType: 5,
+      questionText: '请简述牛顿第一定律'
     });
   });
 

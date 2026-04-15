@@ -61,4 +61,5 @@ export type SolvedAnswer = {
   answerJson: string;
   submitPayloadResult: string[] | string | Record<string, unknown>;
   rawResponseJson: string;
+  isSubmittable: boolean;
 };

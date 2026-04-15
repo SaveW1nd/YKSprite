@@ -80,6 +80,7 @@ const createBrowserController = (): BrowserController => ({
   }),
   discoverLessons: async () => [],
   listExerciseEntries: async () => [],
+  openCurrentExercise: async () => null,
   inspectPage: async () => ({
     currentUrl: 'https://www.yuketang.cn',
     pageTitle: '雨课堂',
@@ -97,6 +98,8 @@ const createBrowserController = (): BrowserController => ({
       { key: 'A', value: 'A' },
       { key: 'B', value: 'B' }
     ],
+    imageUrl: null,
+    imageThumbnailUrl: null,
     isComplete: false,
     routePath: '/v3/lesson-1/exercise/1'
   }),

@@ -35,6 +35,16 @@ const LOGIN_PAGE_URL = 'https://www.yuketang.cn/web';
 const HOME_PAGE_URL = 'https://www.yuketang.cn/v2/web/index';
 
 const EXERCISE_READY_RETRIES = 6;
+const EXERCISE_READY_TIMEOUT_MS = 8000;
+
+const parseLessonTarget = (url: string) => {
+  const lessonMatch = url.match(/\/lesson\/fullscreen\/v3\/([^/?#]+)/);
+  const exerciseMatch = url.match(/\/lesson\/fullscreen\/v3\/([^/?#]+)\/exercise\/([^/?#]+)/);
+  return {
+    lessonId: exerciseMatch?.[1] ?? lessonMatch?.[1] ?? null,
+    exerciseIndex: exerciseMatch?.[2] ?? null
+  };
+};
 
 export class BrowserManager implements BrowserController {
   private readonly launchBrowser: LaunchBrowser;
@@ -321,6 +331,55 @@ export class BrowserManager implements BrowserController {
     });
   }
 
+  async openCurrentExercise(): Promise<string | null> {
+    if (!this.page) {
+      return null;
+    }
+
+    if (/\/(exercise|subjective)\//.test(this.page.url())) {
+      return this.page.url();
+    }
+
+    const clicked = await this.page.evaluate(() => {
+      const selectors = [
+        '.timeline__item.J_slide.active .timeline__ppt.problem',
+        '.timeline__item.J_slide.active',
+        '.msg__box.problem section',
+        '.msg__box.quiz section'
+      ];
+
+      for (const selector of selectors) {
+        const element = document.querySelector(selector);
+        if (element instanceof HTMLElement) {
+          element.click();
+          return true;
+        }
+      }
+
+      return false;
+    });
+
+    if (!clicked) {
+      return null;
+    }
+
+    await this.page.mouse.click(100, 100).catch(() => undefined);
+    await this.page.keyboard.press('Tab').catch(() => undefined);
+    try {
+      await this.page.waitForFunction(() => /\/(exercise|subjective)\//.test(location.href), {
+        timeout: EXERCISE_READY_TIMEOUT_MS
+      });
+      const currentUrl = this.page.url();
+      this.status = {
+        ...this.status,
+        pageUrl: currentUrl
+      };
+      return currentUrl;
+    } catch {
+      return null;
+    }
+  }
+
   async inspectPage(): Promise<PageSnapshot> {
     return {
       currentUrl: this.page?.url() ?? null,
@@ -353,23 +412,70 @@ export class BrowserManager implements BrowserController {
 
     this.page.on('dialog', handleDialog);
     try {
-      await this.page.goto(url, { waitUntil: 'domcontentloaded' });
+      const target = parseLessonTarget(url);
+      const currentUrl = this.page.url();
+      const currentTarget = parseLessonTarget(currentUrl);
+      const currentRuntimeState = await this.readExerciseRuntimeState().catch(() => null);
+
+      const alreadyOnTarget =
+        currentUrl === url ||
+        (currentRuntimeState &&
+          currentRuntimeState.lessonId === target.lessonId &&
+          currentRuntimeState.exerciseIndex === target.exerciseIndex);
+
+      if (!alreadyOnTarget) {
+        const clickedFromTimeline =
+          target.lessonId &&
+          target.exerciseIndex &&
+          currentTarget.lessonId === target.lessonId &&
+          !currentTarget.exerciseIndex
+            ? await this.page.evaluate((exerciseIndex) => {
+                const selectors = [
+                  `.timeline__item.J_slide[data-index="${exerciseIndex}"] .timeline__ppt.problem`,
+                  `.timeline__item.J_slide[data-index="${exerciseIndex}"]`,
+                  `.timeline__ppt.problem[data-index="${exerciseIndex}"]`
+                ];
+
+                for (const selector of selectors) {
+                  const element = document.querySelector(selector);
+                  if (element instanceof HTMLElement) {
+                    element.click();
+                    return true;
+                  }
+                }
+
+                return false;
+              }, target.exerciseIndex)
+            : false;
+
+        if (!clickedFromTimeline) {
+          await this.page.goto(url, { waitUntil: 'domcontentloaded' });
+        }
+      }
+
       await this.page.mouse.click(100, 100).catch(() => undefined);
       await this.page.keyboard.press('Tab').catch(() => undefined);
-      await this.page.waitForTimeout(250);
-
-      for (let attempt = 0; attempt < EXERCISE_READY_RETRIES; attempt += 1) {
-        const runtimeState = await this.readExerciseRuntimeState();
-        if (runtimeState) {
-          this.status = {
-            ...this.status,
-            pageUrl: this.page.url()
-          };
-          return runtimeState;
+      await this.page.waitForFunction(() => {
+        const app = document.querySelector('#app') as { __vue__?: any } | null;
+        const vue = app?.__vue__;
+        if (!vue?.$store || !vue.$route || !['exercise', 'subjective'].includes(vue.$route.name)) {
+          return false;
         }
 
-        await this.page.mouse.click(100, 100).catch(() => undefined);
-        await this.page.waitForTimeout(250);
+        const cards = vue.$store.state?.cards ?? [];
+        const routeIndex = Number(vue.$route.params?.index ?? -1);
+        const card = cards[routeIndex];
+        const problemId = card?.problemID || vue.$store.state?.currSlide?.problemID || null;
+        return Boolean(problemId);
+      }, { timeout: EXERCISE_READY_TIMEOUT_MS });
+
+      const runtimeState = await this.readExerciseRuntimeState();
+      if (runtimeState) {
+        this.status = {
+          ...this.status,
+          pageUrl: this.page.url()
+        };
+        return runtimeState;
       }
 
       throw new Error(`Exercise runtime state was not available for ${url}`);
@@ -391,7 +497,7 @@ export class BrowserManager implements BrowserController {
       }
 
       const route = vue.$route;
-      if (!route || route.name !== 'exercise') {
+      if (!route || !['exercise', 'subjective'].includes(route.name)) {
         return null;
       }
 
@@ -420,6 +526,8 @@ export class BrowserManager implements BrowserController {
         pageIndex: card?.pageIndex ?? null,
         questionText: String(problem?.body ?? card?.body ?? '').trim(),
         options: optionList,
+        imageUrl: card?.cover ?? card?.src ?? root.problemMap?.get?.(problemId)?.cover ?? null,
+        imageThumbnailUrl: card?.thumbnail ?? root.problemMap?.get?.(problemId)?.thumbnail ?? null,
         isComplete: Boolean(card?.isComplete ?? false),
         routePath: route.path ?? null
       } satisfies ExerciseRuntimeState;
@@ -432,54 +540,132 @@ export class BrowserManager implements BrowserController {
     }
 
     return this.page.evaluate(async (input) => {
-      const csrftoken = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/)?.[1] ?? '';
-      const response = await fetch('/api/v3/lesson/problem/answer', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json;charset=UTF-8',
-          'x-csrftoken': csrftoken,
-          xtbz: 'ykt',
-          'xt-agent': 'web',
-          'x-client': 'web',
-          'university-id': '0'
-        },
-        body: JSON.stringify(input)
-      });
+      const pageWindow = window as typeof window & {
+        API?: {
+          lesson?: {
+            answer_problem?: string;
+          };
+        };
+        request?: {
+          post?: (url: string, body: unknown) => Promise<unknown>;
+        };
+      };
 
-      const text = await response.text();
-      let responseJson: unknown = text;
-      try {
-        responseJson = JSON.parse(text);
-      } catch {
-        responseJson = text;
+      if (pageWindow.request?.post && pageWindow.API?.lesson?.answer_problem) {
+        try {
+          const responseJson = await pageWindow.request.post(pageWindow.API.lesson.answer_problem, input);
+          const code =
+            typeof responseJson === 'object' &&
+            responseJson !== null &&
+            'code' in responseJson &&
+            typeof (responseJson as { code?: unknown }).code === 'number'
+              ? (responseJson as { code: number }).code
+              : 0;
+          const message =
+            typeof responseJson === 'object' &&
+            responseJson !== null &&
+            'msg' in responseJson &&
+            typeof (responseJson as { msg?: unknown }).msg === 'string'
+              ? (responseJson as { msg: string }).msg
+              : 'OK';
+
+          return {
+            ok: code === 0,
+            code,
+            message,
+            responseJson
+          } satisfies LessonProblemSubmitResult;
+        } catch (error) {
+          const responseJson =
+            typeof error === 'object' && error !== null
+              ? error
+              : {
+                  message: String(error)
+                };
+          const code =
+            typeof responseJson === 'object' &&
+            responseJson !== null &&
+            'code' in responseJson &&
+            typeof (responseJson as { code?: unknown }).code === 'number'
+              ? (responseJson as { code: number }).code
+              : -1;
+          const message =
+            typeof responseJson === 'object' &&
+            responseJson !== null &&
+            'msg' in responseJson &&
+            typeof (responseJson as { msg?: unknown }).msg === 'string'
+              ? (responseJson as { msg: string }).msg
+              : (responseJson as { message?: string }).message ?? 'Request failed';
+
+          return {
+            ok: false,
+            code,
+            message,
+            responseJson
+          } satisfies LessonProblemSubmitResult;
+        }
       }
 
-      const code =
-        typeof responseJson === 'object' &&
-        responseJson !== null &&
-        'code' in responseJson &&
-        typeof (responseJson as { code?: unknown }).code === 'number'
-          ? ((responseJson as { code: number }).code)
-          : response.ok
-            ? 0
-            : response.status;
+      const csrftoken = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/)?.[1] ?? '';
+      try {
+        const response = await fetch('/api/v3/lesson/problem/answer', {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'content-type': 'application/json;charset=UTF-8',
+            'x-csrftoken': csrftoken,
+            xtbz: 'ykt',
+            'xt-agent': 'web',
+            'x-client': 'web',
+            'university-id': '0'
+          },
+          body: JSON.stringify(input)
+        });
 
-      const message =
-        typeof responseJson === 'object' &&
-        responseJson !== null &&
-        'msg' in responseJson &&
-        typeof (responseJson as { msg?: unknown }).msg === 'string'
-          ? ((responseJson as { msg: string }).msg)
-          : response.ok
-            ? 'OK'
-            : `HTTP ${response.status}`;
+        const text = await response.text();
+        let responseJson: unknown = text;
+        try {
+          responseJson = JSON.parse(text);
+        } catch {
+          responseJson = text;
+        }
 
-      return {
-        ok: response.ok && code === 0,
-        code,
-        message,
-        responseJson
-      } satisfies LessonProblemSubmitResult;
+        const code =
+          typeof responseJson === 'object' &&
+          responseJson !== null &&
+          'code' in responseJson &&
+          typeof (responseJson as { code?: unknown }).code === 'number'
+            ? ((responseJson as { code: number }).code)
+            : response.ok
+              ? 0
+              : response.status;
+
+        const message =
+          typeof responseJson === 'object' &&
+          responseJson !== null &&
+          'msg' in responseJson &&
+          typeof (responseJson as { msg?: unknown }).msg === 'string'
+            ? ((responseJson as { msg: string }).msg)
+            : response.ok
+              ? 'OK'
+              : `HTTP ${response.status}`;
+
+        return {
+          ok: response.ok && code === 0,
+          code,
+          message,
+          responseJson
+        } satisfies LessonProblemSubmitResult;
+      } catch (error) {
+        return {
+          ok: false,
+          code: -1,
+          message: error instanceof Error ? error.message : 'Request failed',
+          responseJson: {
+            error: error instanceof Error ? error.message : String(error)
+          }
+        } satisfies LessonProblemSubmitResult;
+      }
     }, payload);
   }
 

@@ -40,17 +40,19 @@ export const extractQuestionsFromHtml = (
   currentUrl?: string | null
 ): QuestionRecord[] => {
   const questionMatches = [...html.matchAll(/<section[^>]*data-question-id=["']?([^"'>\s]+)["']?[^>]*>(.*?)<\/section>/gis)];
+  const routeMatch = currentUrl?.match(/\/(exercise|subjective)\/([^/?#]+)/);
+  const routeKind = routeMatch?.[1] ?? null;
+  const routeId = routeMatch?.[2] ?? 'current';
 
-  if (questionMatches.length === 0 && /page-exercise/.test(html)) {
+  if (questionMatches.length === 0 && (routeKind === 'exercise' || /page-exercise/.test(html))) {
     const bodyMatch = html.match(/<div[^>]*class=["'][^"']*problem-title[^"']*["'][^>]*>(.*?)<\/div>/is);
-    const body = bodyMatch?.[1]?.replace(/<[^>]+>/g, '').trim() ?? '未识别题干';
+    const body = bodyMatch?.[1]?.replace(/<[^>]+>/g, '').trim() ?? '';
     const options = extractExerciseOptions(html);
     const fallbackOptions = options.length > 0 ? options : extractExerciseOptionsFromText(visibleText ?? '');
-    const exerciseId = currentUrl?.match(/\/exercise\/([^/?#]+)/)?.[1] ?? 'current';
 
     return [
       {
-        questionId: `exercise-${exerciseId}`,
+        questionId: `exercise-${routeId}`,
         courseTitle,
         type: inferQuestionType(html),
         body,
@@ -62,10 +64,25 @@ export const extractQuestionsFromHtml = (
     ];
   }
 
+  if (questionMatches.length === 0 && (routeKind === 'subjective' || /page-subjective/.test(html))) {
+    return [
+      {
+        questionId: `subjective-${routeId}`,
+        courseTitle,
+        type: 'subjective',
+        body: '',
+        options: [],
+        slideIndex: 0,
+        detectedAt: new Date().toISOString(),
+        source: 'mixed'
+      }
+    ];
+  }
+
   return questionMatches.map((match, index) => {
     const sectionHtml = match[2];
     const bodyMatch = sectionHtml.match(/<div[^>]*class=["'][^"']*question-body[^"']*["'][^>]*>(.*?)<\/div>/is);
-    const body = bodyMatch?.[1]?.replace(/<[^>]+>/g, '').trim() ?? '未识别题干';
+    const body = bodyMatch?.[1]?.replace(/<[^>]+>/g, '').trim() ?? '';
     const options = extractOptions(sectionHtml);
 
     return {

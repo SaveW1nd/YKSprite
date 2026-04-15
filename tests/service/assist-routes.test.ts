@@ -95,6 +95,7 @@ const createBrowserController = (): BrowserController => ({
   }),
   discoverLessons: async () => [],
   listExerciseEntries: async () => [],
+  openCurrentExercise: async () => null,
   inspectPage: async () => snapshot,
   captureScreenshot: async () => screenshot,
   ensureExercisePageReady: async (url: string) => ({
@@ -108,6 +109,8 @@ const createBrowserController = (): BrowserController => ({
       { key: 'A', value: 'x' },
       { key: 'B', value: '2x' }
     ],
+    imageUrl: null,
+    imageThumbnailUrl: null,
     isComplete: false,
     routePath: '/v3/lesson-1/exercise/1'
   }),

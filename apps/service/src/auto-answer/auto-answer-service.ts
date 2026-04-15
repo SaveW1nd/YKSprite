@@ -1,4 +1,5 @@
 import { extractOcrResult } from '../assist/ocr-service.js';
+import { downloadQuestionImage } from '../assist/question-image-download.js';
 import type { AutomationStore } from '../automation/automation-store.js';
 import type {
   BrowserController,
@@ -37,6 +38,23 @@ type AutoAnswerServiceOptions = {
 };
 
 const HOME_PAGE_URL = 'https://www.yuketang.cn/v2/web/index';
+const DISCOVERY_RETRY_COUNT = 3;
+const DISCOVERY_RETRY_DELAY_MS = 500;
+
+const normalizeRuntimeQuestionType = (problemType: number, fallbackType: string) => {
+  switch (problemType) {
+    case 1:
+      return 'single_choice';
+    case 2:
+      return 'multiple_choice';
+    case 4:
+      return 'fill_in';
+    case 5:
+      return 'subjective';
+    default:
+      return fallbackType;
+  }
+};
 
 const createInitialStatus = (): AutoAnswerStatus => ({
   runId: null,
@@ -174,21 +192,20 @@ export class AutoAnswerService {
       this.status.lessonId = activeLesson.id;
       this.autoAnswerRepository.upsertRun(run);
 
-      const exerciseEntries = await this.refreshExerciseEntries(activeLesson);
-      const unansweredEntries = exerciseEntries.filter((entry) => entry.status === 'unanswered' && entry.exerciseUrl);
-      run.totalCount = unansweredEntries.length;
-      this.status.totalCount = unansweredEntries.length;
+      const currentTarget = await this.discoverCurrentTarget(activeLesson);
+      run.totalCount = currentTarget ? 1 : 0;
+      this.status.totalCount = run.totalCount;
       this.autoAnswerRepository.upsertRun(run);
 
       const collected: CollectResult[] = [];
-      for (const entry of unansweredEntries) {
+      for (const entry of currentTarget ? [currentTarget] : []) {
         if (this.stopRequested) {
           await this.cancelRun(run);
           return;
         }
 
         this.status.currentExerciseEntryId = entry.entryId;
-        const collectedEntry = await this.collectEntry(run, entry.entryId, entry.exerciseUrl!);
+        const collectedEntry = await this.collectEntry(run, entry.entryId, entry.exerciseUrl);
         if (collectedEntry) {
           collected.push(collectedEntry);
           run.collectedCount += 1;
@@ -227,7 +244,15 @@ export class AutoAnswerService {
 
         this.status.currentExerciseEntryId = item.attempt.exerciseEntryId;
         const solved = solvedByAttemptId.get(item.attempt.id) ?? null;
-        if (!solved) {
+        if (!solved || !solved.isSubmittable) {
+          if (solved && !solved.isSubmittable) {
+            const attempt = this.autoAnswerRepository.getAttempt(item.attempt.id);
+            if (attempt) {
+              attempt.submitStatus = 'failed';
+              attempt.lastError = 'AI returned an empty answer';
+              this.autoAnswerRepository.upsertAttempt(attempt);
+            }
+          }
           run.failedCount += 1;
           this.status.failedCount = run.failedCount;
           this.autoAnswerRepository.upsertRun(run);
@@ -309,6 +334,61 @@ export class AutoAnswerService {
       .filter((entry) => entry.lessonId === activeLesson.id);
   }
 
+  private async discoverCurrentTarget(activeLesson: LessonCandidate): Promise<{ entryId: string; exerciseUrl: string } | null> {
+    for (let attempt = 0; attempt < DISCOVERY_RETRY_COUNT; attempt += 1) {
+      const currentExercise = await this.discoverCurrentExerciseTarget(activeLesson);
+      if (currentExercise) {
+        return currentExercise;
+      }
+
+      if (attempt < DISCOVERY_RETRY_COUNT - 1) {
+        await new Promise((resolve) => setTimeout(resolve, DISCOVERY_RETRY_DELAY_MS));
+      }
+    }
+
+    return null;
+  }
+
+  private async discoverCurrentExerciseTarget(activeLesson: LessonCandidate): Promise<{ entryId: string; exerciseUrl: string } | null> {
+    const snapshot = await this.browserController.inspectPage();
+    const runtimeStatus = probeRuntimeStatus(snapshot);
+    const lessonId = activeLesson.id;
+
+    if (
+      runtimeStatus.lessonState === 'in_class' &&
+      runtimeStatus.currentUrl &&
+      parseLessonIdFromUrl(runtimeStatus.currentUrl) === lessonId &&
+      /\/(exercise|subjective)\//.test(runtimeStatus.currentUrl)
+    ) {
+      const runtimeState = await this.browserController.readExerciseRuntimeState();
+      if (runtimeState && runtimeState.lessonId === lessonId && !runtimeState.isComplete) {
+        return {
+          entryId: `current-exercise-${runtimeState.exerciseIndex ?? runtimeState.problemId}`,
+          exerciseUrl: runtimeStatus.currentUrl
+        };
+      }
+    }
+
+    if (activeLesson.href && runtimeStatus.currentUrl !== activeLesson.href) {
+      await this.browserController.navigate(activeLesson.href);
+    }
+
+    const openedExerciseUrl = await this.browserController.openCurrentExercise();
+    if (!openedExerciseUrl) {
+      return null;
+    }
+
+    const runtimeState = await this.browserController.readExerciseRuntimeState();
+    if (!runtimeState || runtimeState.lessonId !== lessonId || runtimeState.isComplete) {
+      return null;
+    }
+
+    return {
+      entryId: `current-exercise-${runtimeState.exerciseIndex ?? runtimeState.problemId}`,
+      exerciseUrl: openedExerciseUrl
+    };
+  }
+
   private async collectEntry(run: AutoAnswerRunRecord, entryId: string, exerciseUrl: string): Promise<CollectResult | null> {
     return this.automationStore.executeTask<CollectResult | null>('auto_answer_collect', `Collect runtime question for ${entryId}`, async () => {
       try {
@@ -320,10 +400,19 @@ export class AutoAnswerService {
         const snapshot = await this.browserController.inspectPage();
         const runtimeStatus = probeRuntimeStatus(snapshot);
         const questions = extractQuestionsFromHtml(snapshot.html ?? '', runtimeStatus.courseTitle, snapshot.text ?? null, snapshot.currentUrl);
-        this.runtimeRepository.saveSnapshot(runtimeStatus, questions);
+        const normalizedQuestions = questions.map((question) => ({
+          ...question,
+          type: normalizeRuntimeQuestionType(runtimeState.problemType, question.type)
+        }));
+        this.runtimeRepository.saveSnapshot(runtimeStatus, normalizedQuestions);
         const currentQuestion = this.runtimeRepository.getCurrentQuestion();
         if (!currentQuestion) {
           throw new Error(`No current question detected for ${entryId}`);
+        }
+        const runtimeQuestionType = normalizeRuntimeQuestionType(runtimeState.problemType, currentQuestion.type);
+        if (currentQuestion.type !== runtimeQuestionType) {
+          this.runtimeRepository.updateQuestionType(currentQuestion.id, runtimeQuestionType);
+          currentQuestion.type = runtimeQuestionType;
         }
 
         const screenshot = await this.browserController.captureScreenshot();
@@ -339,6 +428,22 @@ export class AutoAnswerService {
             height: null,
             sha256: null
           });
+        }
+        if (runtimeState.imageUrl) {
+          try {
+            const downloaded = await downloadQuestionImage(runtimeState.imageUrl);
+            this.assistRepository.saveQuestionCapture({
+              questionRowId: currentQuestion.id,
+              sourceType: 'runtime_ppt',
+              filePath: downloaded.filePath,
+              mimeType: downloaded.mimeType,
+              width: downloaded.width,
+              height: downloaded.height,
+              sha256: downloaded.sha256
+            });
+          } catch {
+            // Fall back to screenshot capture when PPT image download fails.
+          }
         }
 
         const attempt: AutoAnswerAttemptRecord = {
