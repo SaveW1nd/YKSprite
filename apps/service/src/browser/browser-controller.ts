@@ -49,6 +49,32 @@ export type ScreenshotPayload = {
   data: string;
 } | null;
 
+export type ExerciseRuntimeState = {
+  lessonId: string | null;
+  exerciseIndex: string | null;
+  problemId: string;
+  problemType: number;
+  pageIndex: number | null;
+  questionText: string;
+  options: Array<{ key: string; value: string }>;
+  isComplete: boolean;
+  routePath: string | null;
+};
+
+export type LessonProblemSubmitPayload = {
+  problemId: string;
+  problemType: number;
+  dt: number;
+  result: string[] | string | Record<string, unknown>;
+};
+
+export type LessonProblemSubmitResult = {
+  ok: boolean;
+  code: number;
+  message: string;
+  responseJson: unknown;
+};
+
 export interface BrowserController {
   getStatus(): BrowserStatus;
   start(): Promise<BrowserStatus>;
@@ -62,4 +88,7 @@ export interface BrowserController {
   listExerciseEntries(): Promise<ExerciseEntry[]>;
   inspectPage(): Promise<PageSnapshot>;
   captureScreenshot(): Promise<ScreenshotPayload>;
+  ensureExercisePageReady(url: string): Promise<ExerciseRuntimeState>;
+  readExerciseRuntimeState(): Promise<ExerciseRuntimeState | null>;
+  submitLessonProblem(payload: LessonProblemSubmitPayload): Promise<LessonProblemSubmitResult>;
 }

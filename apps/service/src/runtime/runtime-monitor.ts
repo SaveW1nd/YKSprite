@@ -105,18 +105,16 @@ export class RuntimeMonitor {
         const exercises = await this.browserController.listExerciseEntries();
         const currentLessonId = exercises[0]?.lessonId ?? this.status.currentLessonId;
         this.runtimeRepository.replaceExerciseEntries(currentLessonId, exercises);
-        const unansweredExercise = this.runtimeRepository
+        const lessonEntries = this.runtimeRepository
           .listExerciseEntries()
-          .find(
-            (entry) =>
-              entry.lessonId === currentLessonId &&
-              entry.status === 'unanswered' &&
-              entry.analysisStatus !== 'done'
-          );
+          .filter((entry) => entry.lessonId === currentLessonId);
+        const unansweredExercise =
+          lessonEntries.find((entry) => entry.isActive && entry.status === 'unanswered' && entry.analysisStatus !== 'done') ??
+          lessonEntries.find((entry) => entry.status === 'unanswered' && entry.analysisStatus !== 'done');
 
         if (
           unansweredExercise?.exerciseUrl &&
-          (!current.status.currentUrl || !/\/exercise\//.test(current.status.currentUrl))
+          current.status.currentUrl !== unansweredExercise.exerciseUrl
         ) {
           await this.browserController.navigate(unansweredExercise.exerciseUrl);
         }

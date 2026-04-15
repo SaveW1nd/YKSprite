@@ -1,6 +1,17 @@
 import { chromium } from 'playwright';
 import type { Browser, BrowserContext, Page } from 'playwright';
-import type { BrowserController, BrowserStatus, ExerciseEntry, LessonCandidate, PageSnapshot, ScreenshotPayload, SessionState } from './browser-controller.js';
+import type {
+  BrowserController,
+  BrowserStatus,
+  ExerciseEntry,
+  ExerciseRuntimeState,
+  LessonCandidate,
+  LessonProblemSubmitPayload,
+  LessonProblemSubmitResult,
+  PageSnapshot,
+  ScreenshotPayload,
+  SessionState
+} from './browser-controller.js';
 import { SessionStore } from './session-store.js';
 
 type LaunchBrowser = typeof chromium.launch;
@@ -22,6 +33,8 @@ const createIdleStatus = (): BrowserStatus => ({
 
 const LOGIN_PAGE_URL = 'https://www.yuketang.cn/web';
 const HOME_PAGE_URL = 'https://www.yuketang.cn/v2/web/index';
+
+const EXERCISE_READY_RETRIES = 6;
 
 export class BrowserManager implements BrowserController {
   private readonly launchBrowser: LaunchBrowser;
@@ -327,6 +340,147 @@ export class BrowserManager implements BrowserController {
       mimeType: 'image/png',
       data: data.toString('base64')
     };
+  }
+
+  async ensureExercisePageReady(url: string): Promise<ExerciseRuntimeState> {
+    if (!this.page) {
+      throw new Error('Browser page is not available');
+    }
+
+    const handleDialog = async (dialog: { dismiss(): Promise<void> }) => {
+      await dialog.dismiss().catch(() => undefined);
+    };
+
+    this.page.on('dialog', handleDialog);
+    try {
+      await this.page.goto(url, { waitUntil: 'domcontentloaded' });
+      await this.page.mouse.click(100, 100).catch(() => undefined);
+      await this.page.keyboard.press('Tab').catch(() => undefined);
+      await this.page.waitForTimeout(250);
+
+      for (let attempt = 0; attempt < EXERCISE_READY_RETRIES; attempt += 1) {
+        const runtimeState = await this.readExerciseRuntimeState();
+        if (runtimeState) {
+          this.status = {
+            ...this.status,
+            pageUrl: this.page.url()
+          };
+          return runtimeState;
+        }
+
+        await this.page.mouse.click(100, 100).catch(() => undefined);
+        await this.page.waitForTimeout(250);
+      }
+
+      throw new Error(`Exercise runtime state was not available for ${url}`);
+    } finally {
+      this.page.off('dialog', handleDialog);
+    }
+  }
+
+  async readExerciseRuntimeState(): Promise<ExerciseRuntimeState | null> {
+    if (!this.page) {
+      return null;
+    }
+
+    return this.page.evaluate(() => {
+      const app = document.querySelector('#app') as { __vue__?: any } | null;
+      const vue = app?.__vue__;
+      if (!vue?.$store) {
+        return null;
+      }
+
+      const route = vue.$route;
+      if (!route || route.name !== 'exercise') {
+        return null;
+      }
+
+      const root = vue.$children?.[0] ?? vue;
+      const cards = vue.$store.state?.cards ?? [];
+      const routeIndex = Number(route.params?.index ?? -1);
+      const card = cards[routeIndex];
+      const problemId = card?.problemID || vue.$store.state?.currSlide?.problemID || null;
+      if (!problemId) {
+        return null;
+      }
+
+      const problem = root.problemMap?.get?.(problemId)?.problem;
+      const optionList = (problem?.options ?? card?.options ?? [])
+        .map((option: { key?: string; value?: string; label?: string }) => ({
+          key: option.key ?? option.label ?? '',
+          value: option.value ?? option.label ?? option.key ?? ''
+        }))
+        .filter((option: { key: string; value: string }) => option.key || option.value);
+
+      return {
+        lessonId: route.params?.lessonID ?? null,
+        exerciseIndex: route.params?.index ?? null,
+        problemId,
+        problemType: Number(problem?.problemType ?? card?.problemType ?? 0),
+        pageIndex: card?.pageIndex ?? null,
+        questionText: String(problem?.body ?? card?.body ?? '').trim(),
+        options: optionList,
+        isComplete: Boolean(card?.isComplete ?? false),
+        routePath: route.path ?? null
+      } satisfies ExerciseRuntimeState;
+    });
+  }
+
+  async submitLessonProblem(payload: LessonProblemSubmitPayload): Promise<LessonProblemSubmitResult> {
+    if (!this.page) {
+      throw new Error('Browser page is not available');
+    }
+
+    return this.page.evaluate(async (input) => {
+      const csrftoken = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/)?.[1] ?? '';
+      const response = await fetch('/api/v3/lesson/problem/answer', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json;charset=UTF-8',
+          'x-csrftoken': csrftoken,
+          xtbz: 'ykt',
+          'xt-agent': 'web',
+          'x-client': 'web',
+          'university-id': '0'
+        },
+        body: JSON.stringify(input)
+      });
+
+      const text = await response.text();
+      let responseJson: unknown = text;
+      try {
+        responseJson = JSON.parse(text);
+      } catch {
+        responseJson = text;
+      }
+
+      const code =
+        typeof responseJson === 'object' &&
+        responseJson !== null &&
+        'code' in responseJson &&
+        typeof (responseJson as { code?: unknown }).code === 'number'
+          ? ((responseJson as { code: number }).code)
+          : response.ok
+            ? 0
+            : response.status;
+
+      const message =
+        typeof responseJson === 'object' &&
+        responseJson !== null &&
+        'msg' in responseJson &&
+        typeof (responseJson as { msg?: unknown }).msg === 'string'
+          ? ((responseJson as { msg: string }).msg)
+          : response.ok
+            ? 'OK'
+            : `HTTP ${response.status}`;
+
+      return {
+        ok: response.ok && code === 0,
+        code,
+        message,
+        responseJson
+      } satisfies LessonProblemSubmitResult;
+    }, payload);
   }
 
   private async cleanup() {

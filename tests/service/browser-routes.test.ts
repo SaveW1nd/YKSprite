@@ -69,12 +69,44 @@ const createBrowserController = (): BrowserController => ({
     pageUrl: url,
     lastError: null
   }),
+  navigateHome: async () => ({
+    status: 'running',
+    engine: 'chromium',
+    headless: true,
+    mode: 'headless',
+    startedAt: '2026-04-14T00:00:00.000Z',
+    pageUrl: 'https://www.yuketang.cn/v2/web/index',
+    lastError: null
+  }),
+  discoverLessons: async () => [],
+  listExerciseEntries: async () => [],
   inspectPage: async () => ({
     currentUrl: 'https://www.yuketang.cn',
     pageTitle: '雨课堂',
     html: '<main></main>'
   }),
-  captureScreenshot: async () => null
+  captureScreenshot: async () => null,
+  ensureExercisePageReady: async () => ({
+    lessonId: 'lesson-1',
+    exerciseIndex: '1',
+    problemId: 'problem-1',
+    problemType: 1,
+    pageIndex: 1,
+    questionText: '示例题目',
+    options: [
+      { key: 'A', value: 'A' },
+      { key: 'B', value: 'B' }
+    ],
+    isComplete: false,
+    routePath: '/v3/lesson-1/exercise/1'
+  }),
+  readExerciseRuntimeState: async () => null,
+  submitLessonProblem: async () => ({
+    ok: true,
+    code: 0,
+    message: 'OK',
+    responseJson: { code: 0, msg: 'OK' }
+  })
 });
 
 describe('browser routes', () => {

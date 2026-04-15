@@ -60,6 +60,41 @@ const applyMigrations = (sqlite: Database.Database) => {
       source_ref TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS auto_answer_runs (
+      id TEXT PRIMARY KEY NOT NULL,
+      status TEXT NOT NULL,
+      lesson_id TEXT,
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      total_count INTEGER NOT NULL,
+      collected_count INTEGER NOT NULL,
+      solved_count INTEGER NOT NULL,
+      success_count INTEGER NOT NULL,
+      failed_count INTEGER NOT NULL,
+      last_error TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS auto_answer_attempts (
+      id TEXT PRIMARY KEY NOT NULL,
+      run_id TEXT NOT NULL,
+      question_row_id INTEGER,
+      exercise_entry_id TEXT NOT NULL,
+      problem_id TEXT NOT NULL,
+      problem_type INTEGER NOT NULL,
+      provider TEXT,
+      model TEXT,
+      answer_json TEXT,
+      confidence TEXT,
+      reasoning_summary TEXT,
+      collect_status TEXT NOT NULL,
+      solve_status TEXT NOT NULL,
+      submit_status TEXT NOT NULL,
+      submit_attempt INTEGER NOT NULL,
+      submit_response_json TEXT,
+      submitted_at TEXT,
+      last_error TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS events (
       id TEXT PRIMARY KEY NOT NULL,
       level TEXT NOT NULL,

@@ -47,7 +47,12 @@ export type VisionAnalysisServiceLike = {
   }): Promise<VisionAnalysis>;
 };
 
-const promptTypeForQuestion = (type: string) => (type === 'multiple_choice' ? 'multiple_choice' : 'single_choice');
+const promptTypeForQuestion = (type: string) => {
+  if (type === 'multiple_choice') return 'multiple_choice';
+  if (type === 'fill_in') return 'fill_in';
+  if (type === 'subjective') return 'subjective';
+  return 'single_choice';
+};
 
 const defaultProvider = () => (process.env.VISION_DEFAULT_PROVIDER === 'openai' ? 'openai' : 'qwen_vl');
 

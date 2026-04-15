@@ -4,7 +4,11 @@ export type TaskType =
   | 'runtime_scan'
   | 'question_extract'
   | 'ocr_extract'
-  | 'draft_generate';
+  | 'draft_generate'
+  | 'auto_answer_run'
+  | 'auto_answer_collect'
+  | 'auto_answer_solve'
+  | 'auto_answer_submit';
 
 export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 

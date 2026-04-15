@@ -10,6 +10,15 @@ afterEach(() => {
 type FakePage = {
   evaluate: ReturnType<typeof vi.fn>;
   goto: ReturnType<typeof vi.fn>;
+  keyboard: {
+    press: ReturnType<typeof vi.fn>;
+  };
+  mouse: {
+    click: ReturnType<typeof vi.fn>;
+  };
+  off: ReturnType<typeof vi.fn>;
+  on: ReturnType<typeof vi.fn>;
+  waitForTimeout: ReturnType<typeof vi.fn>;
   title: ReturnType<typeof vi.fn>;
   url: ReturnType<typeof vi.fn>;
 };
@@ -30,6 +39,15 @@ const createRuntime = () => {
   const page: FakePage = {
     evaluate: vi.fn().mockResolvedValue([]),
     goto: vi.fn().mockResolvedValue(undefined),
+    keyboard: {
+      press: vi.fn().mockResolvedValue(undefined)
+    },
+    mouse: {
+      click: vi.fn().mockResolvedValue(undefined)
+    },
+    off: vi.fn(),
+    on: vi.fn(),
+    waitForTimeout: vi.fn().mockResolvedValue(undefined),
     title: vi.fn().mockResolvedValue('雨课堂'),
     url: vi.fn().mockReturnValue('https://www.yuketang.cn')
   };
@@ -218,6 +236,69 @@ describe('BrowserManager', () => {
         thumbnailUrl: 'https://example.com/problem-5.png'
       })
     ]);
+  });
+
+  it('stabilizes an exercise page and reads runtime state from vue', async () => {
+    const runtime = createRuntime();
+    runtime.page.evaluate.mockResolvedValue({
+      lessonId: 'lesson-1',
+      exerciseIndex: '13',
+      problemId: 'problem-13',
+      problemType: 1,
+      pageIndex: 6,
+      questionText: '13 题题干',
+      options: [
+        { key: 'A', value: 'A' },
+        { key: 'B', value: 'B' }
+      ],
+      isComplete: false,
+      routePath: '/v3/lesson-1/exercise/13'
+    });
+    const manager = new BrowserManager({ launchBrowser: runtime.launch });
+
+    await manager.start();
+    const state = await manager.ensureExercisePageReady('https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/13');
+
+    expect(runtime.page.goto).toHaveBeenCalledWith(
+      'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/13',
+      { waitUntil: 'domcontentloaded' }
+    );
+    expect(runtime.page.mouse.click).toHaveBeenCalled();
+    expect(runtime.page.keyboard.press).toHaveBeenCalledWith('Tab');
+    expect(state).toMatchObject({
+      problemId: 'problem-13',
+      exerciseIndex: '13'
+    });
+  });
+
+  it('submits lesson problem answers inside the page context', async () => {
+    const runtime = createRuntime();
+    runtime.page.evaluate.mockResolvedValue({
+      ok: true,
+      code: 0,
+      message: 'OK',
+      responseJson: { code: 0, msg: 'OK' }
+    });
+    const manager = new BrowserManager({ launchBrowser: runtime.launch });
+
+    await manager.start();
+    const result = await manager.submitLessonProblem({
+      problemId: 'problem-13',
+      problemType: 1,
+      dt: 1776240367580,
+      result: ['B']
+    });
+
+    expect(runtime.page.evaluate).toHaveBeenCalledWith(expect.any(Function), {
+      problemId: 'problem-13',
+      problemType: 1,
+      dt: 1776240367580,
+      result: ['B']
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      code: 0
+    });
   });
 
   it('is idempotent when start is called repeatedly', async () => {

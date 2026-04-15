@@ -1,6 +1,9 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
+import { AutoAnswerRepository } from './auto-answer/auto-answer-repository.js';
+import { AutoAnswerService } from './auto-answer/auto-answer-service.js';
+import { QuestionSolveService } from './auto-answer/question-solve-service.js';
 import { BrowserManager } from './browser/browser-manager.js';
 import type { BrowserController } from './browser/browser-controller.js';
 import { AutomationStore } from './automation/automation-store.js';
@@ -12,6 +15,7 @@ import { SessionRepository } from './db/session-repository.js';
 import { TaskRepository } from './db/task-repository.js';
 import { registerAssistRoutes } from './routes/assist.js';
 import { registerAutomationRoutes } from './routes/automation.js';
+import { registerAutoplayRoutes } from './routes/autoplay.js';
 import { registerBrowserRoutes } from './routes/browser.js';
 import { registerHealthRoute } from './routes/health.js';
 import { registerRuntimeRoutes } from './routes/runtime.js';
@@ -39,6 +43,7 @@ export const buildServiceApp = (options: BuildServiceAppOptions = {}) => {
   const taskRepository = new TaskRepository(databaseClient);
   const runtimeRepository = new RuntimeRepository(databaseClient);
   const assistRepository = new AssistRepository(databaseClient);
+  const autoAnswerRepository = new AutoAnswerRepository(databaseClient);
   const browserController =
     options.browserController ??
     new BrowserManager({
@@ -46,11 +51,20 @@ export const buildServiceApp = (options: BuildServiceAppOptions = {}) => {
     });
   const visionAnalysisService = options.visionAnalysisService ?? new VisionAnalysisService(assistRepository);
   const automationStore = new AutomationStore(taskRepository);
+  const questionSolveService = new QuestionSolveService(assistRepository, visionAnalysisService);
   const runtimeMonitor = new RuntimeMonitor({
     browserController,
     runtimeRepository,
     assistRepository,
     visionAnalysisService,
+    automationStore
+  });
+  const autoAnswerService = new AutoAnswerService({
+    browserController,
+    runtimeRepository,
+    assistRepository,
+    autoAnswerRepository,
+    questionSolveService,
     automationStore
   });
 
@@ -59,6 +73,7 @@ export const buildServiceApp = (options: BuildServiceAppOptions = {}) => {
   registerRuntimeRoutes(app, browserController, runtimeRepository, automationStore, runtimeMonitor);
   registerAssistRoutes(app, browserController, automationStore, runtimeRepository, assistRepository, visionAnalysisService);
   registerAutomationRoutes(app, automationStore);
+  registerAutoplayRoutes(app, autoAnswerService);
   registerWebShellRoutes(app, options.webDistDir ?? defaultWebDistDir());
 
   return app;

@@ -142,6 +142,27 @@ const createBrowserController = (
     captureScreenshot: async () => ({
       mimeType: 'image/png',
       data: 'ZmFrZS1wbmc='
+    }),
+    ensureExercisePageReady: async (url: string) => ({
+      lessonId: 'lesson-1',
+      exerciseIndex: url.split('/').pop() ?? '1',
+      problemId: 'problem-1',
+      problemType: 1,
+      pageIndex: 1,
+      questionText: '函数 f(x) 的导数是？',
+      options: [
+        { key: 'A', value: 'x' },
+        { key: 'B', value: '2x' }
+      ],
+      isComplete: false,
+      routePath: '/v3/lesson-1/exercise/1'
+    }),
+    readExerciseRuntimeState: async () => null,
+    submitLessonProblem: async () => ({
+      ok: true,
+      code: 0,
+      message: 'OK',
+      responseJson: { code: 0, msg: 'OK' }
     })
   };
 };
@@ -352,6 +373,115 @@ describe('runtime routes', () => {
         entryId: 'timeline-4',
         analysisStatus: 'done'
       });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('prefers the active unanswered exercise over older pending entries', async () => {
+    const app = buildServiceApp({
+      browserController: createBrowserController({
+        inspectSnapshot: {
+          ...snapshot,
+          currentUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/13'
+        },
+        listedExercises: [
+          {
+            entryId: 'timeline-10',
+            lessonId: 'lesson-1',
+            status: 'unanswered',
+            isActive: false,
+            pageHint: '第5页',
+            remainingHint: '11分钟前',
+            thumbnailUrl: 'https://example.com/problem-10.png',
+            exerciseUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/10'
+          },
+          {
+            entryId: 'timeline-13',
+            lessonId: 'lesson-1',
+            status: 'unanswered',
+            isActive: true,
+            pageHint: '第6页',
+            remainingHint: '刚刚',
+            thumbnailUrl: 'https://example.com/problem-13.png',
+            exerciseUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/13'
+          }
+        ]
+      }),
+      visionAnalysisService: createVisionAnalysisService()
+    });
+
+    try {
+      await app.inject({ method: 'POST', url: '/runtime/monitor/start' });
+      const response = await app.inject({ method: 'GET', url: '/runtime/exercises' });
+
+      expect(response.statusCode).toBe(200);
+      const entries = response.json();
+      expect(entries.find((entry: { entryId: string }) => entry.entryId === 'timeline-13')).toMatchObject({
+        analysisStatus: 'done'
+      });
+      expect(entries.find((entry: { entryId: string }) => entry.entryId === 'timeline-10')).toMatchObject({
+        analysisStatus: 'pending'
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('moves to the next unanswered exercise after the active one is already done', async () => {
+    const navigatedUrls: string[] = [];
+    const browserController = createBrowserController({
+      inspectSnapshot: {
+        ...snapshot,
+        currentUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/13'
+      },
+      listedExercises: [
+        {
+          entryId: 'timeline-10',
+          lessonId: 'lesson-1',
+          status: 'unanswered',
+          isActive: false,
+          pageHint: '第5页',
+          remainingHint: '11分钟前',
+          thumbnailUrl: 'https://example.com/problem-10.png',
+          exerciseUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/10',
+          analysisStatus: 'pending'
+        },
+        {
+          entryId: 'timeline-13',
+          lessonId: 'lesson-1',
+          status: 'unanswered',
+          isActive: true,
+          pageHint: '第6页',
+          remainingHint: '刚刚',
+          thumbnailUrl: 'https://example.com/problem-13.png',
+          exerciseUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/13',
+          analysisStatus: 'done'
+        }
+      ]
+    });
+
+    browserController.navigate = async (url: string) => {
+      navigatedUrls.push(url);
+      return {
+        status: 'running',
+        engine: 'chromium',
+        headless: true,
+        mode: 'headless',
+        startedAt: '2026-04-14T00:00:00.000Z',
+        pageUrl: url,
+        lastError: null
+      };
+    };
+
+    const app = buildServiceApp({
+      browserController,
+      visionAnalysisService: createVisionAnalysisService()
+    });
+
+    try {
+      await app.inject({ method: 'POST', url: '/runtime/monitor/start' });
+      expect(navigatedUrls).toContain('https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/10');
     } finally {
       await app.close();
     }

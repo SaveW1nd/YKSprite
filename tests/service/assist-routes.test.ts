@@ -75,15 +75,6 @@ const createBrowserController = (): BrowserController => ({
   }),
   getSessionState: async () => sessionState,
   saveSession: async () => sessionState,
-  navigateHome: async () => ({
-    status: 'running',
-    engine: 'chromium',
-    headless: true,
-    mode: 'headless',
-    startedAt: '2026-04-14T00:00:00.000Z',
-    pageUrl: 'https://www.yuketang.cn/v2/web/index',
-    lastError: null
-  }),
   navigate: async (url: string) => ({
     status: 'running',
     engine: 'chromium',
@@ -93,8 +84,40 @@ const createBrowserController = (): BrowserController => ({
     pageUrl: url,
     lastError: null
   }),
+  navigateHome: async () => ({
+    status: 'running',
+    engine: 'chromium',
+    headless: true,
+    mode: 'headless',
+    startedAt: '2026-04-14T00:00:00.000Z',
+    pageUrl: 'https://www.yuketang.cn/v2/web/index',
+    lastError: null
+  }),
+  discoverLessons: async () => [],
+  listExerciseEntries: async () => [],
   inspectPage: async () => snapshot,
-  captureScreenshot: async () => screenshot
+  captureScreenshot: async () => screenshot,
+  ensureExercisePageReady: async (url: string) => ({
+    lessonId: 'lesson-1',
+    exerciseIndex: url.split('/').pop() ?? '1',
+    problemId: 'problem-1',
+    problemType: 1,
+    pageIndex: 1,
+    questionText: '函数 f(x) 的导数是？',
+    options: [
+      { key: 'A', value: 'x' },
+      { key: 'B', value: '2x' }
+    ],
+    isComplete: false,
+    routePath: '/v3/lesson-1/exercise/1'
+  }),
+  readExerciseRuntimeState: async () => null,
+  submitLessonProblem: async () => ({
+    ok: true,
+    code: 0,
+    message: 'OK',
+    responseJson: { code: 0, msg: 'OK' }
+  })
 });
 
 const createVisionAnalysisService = () => ({
@@ -199,7 +222,7 @@ describe('assist and automation routes', () => {
       });
     } finally {
       await app.close();
-      rmSync('/Users/savewind/Documents/github/YKSprite/data/captures', { recursive: true, force: true });
+      rmSync('/Users/savewind/Documents/github/YKSprite/data/captures', { recursive: true, force: true, maxRetries: 3 });
     }
   });
 });

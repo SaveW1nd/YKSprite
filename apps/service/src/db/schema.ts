@@ -30,6 +30,41 @@ export const tasksTable = sqliteTable('tasks', {
   sourceRef: text('source_ref')
 });
 
+export const autoAnswerRunsTable = sqliteTable('auto_answer_runs', {
+  id: text('id').primaryKey(),
+  status: text('status').notNull(),
+  lessonId: text('lesson_id'),
+  startedAt: text('started_at').notNull(),
+  finishedAt: text('finished_at'),
+  totalCount: integer('total_count').notNull(),
+  collectedCount: integer('collected_count').notNull(),
+  solvedCount: integer('solved_count').notNull(),
+  successCount: integer('success_count').notNull(),
+  failedCount: integer('failed_count').notNull(),
+  lastError: text('last_error')
+});
+
+export const autoAnswerAttemptsTable = sqliteTable('auto_answer_attempts', {
+  id: text('id').primaryKey(),
+  runId: text('run_id').notNull(),
+  questionRowId: integer('question_row_id'),
+  exerciseEntryId: text('exercise_entry_id').notNull(),
+  problemId: text('problem_id').notNull(),
+  problemType: integer('problem_type').notNull(),
+  provider: text('provider'),
+  model: text('model'),
+  answerJson: text('answer_json'),
+  confidence: text('confidence'),
+  reasoningSummary: text('reasoning_summary'),
+  collectStatus: text('collect_status').notNull(),
+  solveStatus: text('solve_status').notNull(),
+  submitStatus: text('submit_status').notNull(),
+  submitAttempt: integer('submit_attempt').notNull(),
+  submitResponseJson: text('submit_response_json'),
+  submittedAt: text('submitted_at'),
+  lastError: text('last_error')
+});
+
 export const eventsTable = sqliteTable('events', {
   id: text('id').primaryKey(),
   level: text('level').notNull(),

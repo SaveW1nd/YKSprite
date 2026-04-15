@@ -8,7 +8,7 @@ export function formatProblemPrompt(problem: Problem): string {
     .join('\n');
 }
 
-export type VisionPromptType = 'single_choice' | 'multiple_choice';
+export type VisionPromptType = 'single_choice' | 'multiple_choice' | 'fill_in' | 'subjective';
 
 export function formatVisionPrompt(template: string, problem: Problem): string {
   const optionLines = (problem.options ?? []).map((option) => `${option.key}. ${option.value}`).join('\n');
