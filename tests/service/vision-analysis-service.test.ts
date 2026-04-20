@@ -10,9 +10,7 @@ describe('VisionAnalysisService', () => {
     delete process.env.QWEN_VL_API_KEY;
   });
 
-  it('records a failed qwen request when the api key is missing', async () => {
-    delete process.env.QWEN_VL_API_KEY;
-
+  it('records a failed qwen request when the database has no active api key', async () => {
     const traceStore = new AutoplayDebugTraceStore();
     const repository = {
       getLatestCaptureByQuestionId: vi.fn().mockReturnValue({
@@ -45,7 +43,7 @@ describe('VisionAnalysisService', () => {
     const service = new VisionAnalysisService(repository as never, undefined, traceStore, apiConfigService);
 
     await expect(service.analyzeQuestionImage({ questionId: 'q-1' })).rejects.toThrow(
-      'QWEN_VL_API_KEY is not configured'
+      'api key未配置，无法调用 AI 解题'
     );
 
     expect(traceStore.list({ afterId: 0, limit: 10 })).toEqual(
@@ -56,7 +54,7 @@ describe('VisionAnalysisService', () => {
           data: expect.objectContaining({
             questionId: 'q-1',
             provider: 'qwen_vl',
-            reason: 'QWEN_VL_API_KEY is not configured'
+            reason: 'api key未配置，无法调用 AI 解题'
           })
         })
       ])

@@ -97,7 +97,7 @@ const buildQuestionRecordFromRuntimeState = (
   options: runtimeState.options,
   slideIndex: runtimeState.pageIndex,
   detectedAt: new Date().toISOString(),
-  source: runtimeState.imageUrl ? 'image' : 'mixed'
+  source: 'mixed'
 });
 
 const buildRuntimeStatusForQuestion = (runtimeState: ExerciseRuntimeState, currentUrl: string, courseTitle: string | null): RuntimeStatus => ({

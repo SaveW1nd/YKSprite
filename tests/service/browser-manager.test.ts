@@ -1130,8 +1130,7 @@ describe('BrowserManager', () => {
         lessonId: 'lesson-1',
         problemId: 'problem-13',
         problemType: 1,
-        routePath: '/v3/lesson-1/exercise/13',
-        source: 'runtime-state'
+        routePath: '/v3/lesson-1/exercise/13'
       })
     );
   });
@@ -1377,7 +1376,7 @@ describe('BrowserManager', () => {
     expect(onEvent).not.toHaveBeenCalled();
   });
 
-  it('reads the latest unresolved lesson card when the page stays on the lesson root route', async () => {
+  it('returns null when the page stays on the lesson root route without a current problem event', async () => {
     const runtime = createRuntime();
     runtime.page.url.mockReturnValue('https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1');
     runtime.page.evaluate.mockImplementation(async (fn: (...args: any[]) => unknown, ...args: unknown[]) => fn(...args));
@@ -1438,16 +1437,7 @@ describe('BrowserManager', () => {
 
     await manager.start();
 
-    await expect(manager.readExerciseRuntimeState()).resolves.toEqual(
-      expect.objectContaining({
-        lessonId: 'lesson-1',
-        exerciseIndex: '1',
-        problemId: 'problem-15',
-        problemType: 1,
-        questionText: '15 题题干',
-        routePath: '/lesson/fullscreen/v3/lesson-1/exercise/1'
-      })
-    );
+    await expect(manager.readExerciseRuntimeState()).resolves.toBeNull();
   });
 
   it('waits before navigating into the active lesson when detection starts on the home page', async () => {
