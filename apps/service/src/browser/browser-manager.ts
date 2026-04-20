@@ -299,12 +299,11 @@ const installQuestionDetector = (input: { questionBindingName: string; lessonBin
     } satisfies ExerciseRuntimeState;
   };
 
-  const buildEvent = (runtimeState: ExerciseRuntimeState | null): DetectedQuestionEvent | null => {
-    return buildDetectedQuestionEvent(runtimeState, {
+  const buildEvent = (runtimeState: ExerciseRuntimeState | null): DetectedQuestionEvent | null =>
+    buildDetectedQuestionEvent(runtimeState, {
       source: 'curr-slide-event',
       pageIndex: runtimeState?.pageIndex ?? null
     });
-  };
 
   const selectActiveLessonFromApiPayload = (payload: {
     data?: {
@@ -470,7 +469,7 @@ const installQuestionDetector = (input: { questionBindingName: string; lessonBin
       return;
     }
 
-    const event = buildEvent(readCurrentSlideRuntimeState() ?? readRuntimeState());
+    const event = buildEvent(readCurrentSlideRuntimeState());
     if (!event) {
       return;
     }
@@ -1437,25 +1436,7 @@ export class BrowserManager implements BrowserController, AccountLoginController
         );
       }
 
-      const candidates = cards
-        .map((card: any, index: number) => {
-          if (card?.isComplete) {
-            return null;
-          }
-
-          const problemType = Number(root?.problemMap?.get?.(card?.problemID)?.problem?.problemType ?? card?.problemType ?? 0);
-          const isSubjective = problemType === 5;
-          return buildRuntimeStateFromCard(
-            context,
-            card,
-            String(index),
-            `/lesson/fullscreen/v3/${lessonId}/${isSubjective ? 'subjective' : 'exercise'}/${index}`,
-            index
-          );
-        })
-        .filter((card: ExerciseRuntimeState | null): card is ExerciseRuntimeState => Boolean(card));
-
-      return candidates[candidates.length - 1] ?? null;
+      return null;
     });
   }
 
@@ -1486,72 +1467,6 @@ export class BrowserManager implements BrowserController, AccountLoginController
     }
 
     return this.page.evaluate(async (input) => {
-      const pageWindow = window as typeof window & {
-        API?: {
-          lesson?: {
-            answer_problem?: string;
-          };
-        };
-        request?: {
-          post?: (url: string, body: unknown) => Promise<unknown>;
-        };
-      };
-
-      if (pageWindow.request?.post && pageWindow.API?.lesson?.answer_problem) {
-        try {
-          const responseJson = await pageWindow.request.post(pageWindow.API.lesson.answer_problem, input);
-          const code =
-            typeof responseJson === 'object' &&
-            responseJson !== null &&
-            'code' in responseJson &&
-            typeof (responseJson as { code?: unknown }).code === 'number'
-              ? (responseJson as { code: number }).code
-              : 0;
-          const message =
-            typeof responseJson === 'object' &&
-            responseJson !== null &&
-            'msg' in responseJson &&
-            typeof (responseJson as { msg?: unknown }).msg === 'string'
-              ? (responseJson as { msg: string }).msg
-              : 'OK';
-
-          return {
-            ok: code === 0,
-            code,
-            message,
-            responseJson
-          } satisfies LessonProblemSubmitResult;
-        } catch (error) {
-          const responseJson =
-            typeof error === 'object' && error !== null
-              ? error
-              : {
-                  message: String(error)
-                };
-          const code =
-            typeof responseJson === 'object' &&
-            responseJson !== null &&
-            'code' in responseJson &&
-            typeof (responseJson as { code?: unknown }).code === 'number'
-              ? (responseJson as { code: number }).code
-              : -1;
-          const message =
-            typeof responseJson === 'object' &&
-            responseJson !== null &&
-            'msg' in responseJson &&
-            typeof (responseJson as { msg?: unknown }).msg === 'string'
-              ? (responseJson as { msg: string }).msg
-              : (responseJson as { message?: string }).message ?? 'Request failed';
-
-          return {
-            ok: false,
-            code,
-            message,
-            responseJson
-          } satisfies LessonProblemSubmitResult;
-        }
-      }
-
       const csrftoken = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/)?.[1] ?? '';
       try {
         const response = await fetch('/api/v3/lesson/problem/answer', {
@@ -1809,7 +1724,56 @@ export class BrowserManager implements BrowserController, AccountLoginController
       return;
     }
 
-    const event = buildDetectedQuestionEvent(await this.readExerciseRuntimeState().catch(() => null));
+    const event =
+      (await this.page
+        ?.evaluate(() => {
+          const app = document.querySelector('#app') as { __vue__?: any } | null;
+          const vue = app?.__vue__;
+          if (!vue?.$store) {
+            return null;
+          }
+
+          const route = vue.$route;
+          const lessonId =
+            route?.params?.lessonID ??
+            location.pathname.match(/\/lesson\/fullscreen\/v3\/([^/?#]+)/)?.[1] ??
+            null;
+          const root = vue.$children?.[0] ?? vue;
+          const currSlide = vue.$store.state?.currSlide ?? null;
+          const slideEvent = currSlide?.event ?? null;
+          if (!lessonId || slideEvent?.type !== 'problem') {
+            return null;
+          }
+
+          const problemId =
+            (typeof slideEvent?.prob === 'string' && slideEvent.prob.trim() ? slideEvent.prob.trim() : null) ??
+            (typeof slideEvent?.sid === 'string' && slideEvent.sid.trim() ? slideEvent.sid.trim() : null) ??
+            (typeof currSlide?.problemID === 'string' && currSlide.problemID.trim() ? currSlide.problemID.trim() : null) ??
+            null;
+          const problemType = Number(root?.problemMap?.get?.(problemId)?.problem?.problemType ?? currSlide?.problemType ?? 0);
+          if (!problemId || !problemType || Boolean(currSlide?.isComplete)) {
+            return null;
+          }
+
+          return {
+            lessonId,
+            problemId,
+            problemType,
+            exerciseIndex:
+              (typeof currSlide?.exerciseIndex === 'string' && currSlide.exerciseIndex.trim() ? currSlide.exerciseIndex.trim() : null) ??
+              (typeof currSlide?.pageIndex === 'number' && Number.isFinite(currSlide.pageIndex) ? String(currSlide.pageIndex) : null),
+            routePath: route?.path ?? null,
+            isComplete: Boolean(currSlide?.isComplete),
+            imageUrl: currSlide?.cover ?? currSlide?.src ?? root?.problemMap?.get?.(problemId)?.cover ?? null,
+            detectedAt: new Date().toISOString(),
+            pageIndex:
+              (typeof currSlide?.pageIndex === 'number' && Number.isFinite(currSlide.pageIndex) ? currSlide.pageIndex : null) ??
+              (typeof slideEvent?.si === 'number' && Number.isFinite(slideEvent.si) ? slideEvent.si : null),
+            source: 'curr-slide-event'
+          } satisfies DetectedQuestionEvent;
+        })
+        .catch(() => null)) ??
+      null;
     if (!event) {
       return;
     }

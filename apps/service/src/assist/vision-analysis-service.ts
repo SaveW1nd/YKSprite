@@ -139,11 +139,11 @@ export class VisionAnalysisService implements VisionAnalysisServiceLike {
     }
 
     const provider = 'qwen_vl' as const;
-    const providerConfig = this.apiConfigService?.getActiveQwenRuntimeConfig() ?? {
-      apiKey: null,
-      baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
-      model: 'qwen3-vl-flash-2026-01-22'
-    };
+    if (!this.apiConfigService) {
+      throw new Error('ApiConfigService is required for vision analysis');
+    }
+
+    const providerConfig = this.apiConfigService.getActiveQwenRuntimeConfig();
     const promptType = promptTypeForQuestion(question.type);
     const template = await readFile(path.join(this.promptDir, `${promptType}.txt`), 'utf8');
     const prompt = formatVisionPrompt(template, buildProblemHint(question));
@@ -161,6 +161,10 @@ export class VisionAnalysisService implements VisionAnalysisServiceLike {
 
     let response;
     try {
+      if (!providerConfig.apiKey) {
+        throw new Error(this.apiConfigService.getMissingKeyMessage());
+      }
+
       response = await analyzeWithQwenVl({ imagePath: capture.filePath, prompt, config: providerConfig });
     } catch (error) {
       const reason = error instanceof Error ? error.message : 'Unknown AI request failure';

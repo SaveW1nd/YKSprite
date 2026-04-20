@@ -327,4 +327,80 @@ describe('AutoplayMonitorService', () => {
     });
     expect(autoAnswerService.start).toHaveBeenCalledTimes(1);
   });
+
+  it('passes preferredQuestion into auto answer runs for both immediate and queued events', async () => {
+    vi.useFakeTimers();
+    let onQuestionEvent: ((event: any) => Promise<void>) | null = null;
+    let autoAnswerStatus: 'idle' | 'running' = 'idle';
+    const autoAnswerService = {
+      getStatus: vi.fn(() => ({ status: autoAnswerStatus })),
+      start: vi.fn(async () => ({ runId: `run-${Date.now()}` }))
+    };
+    const browserController = {
+      ...createBrowserController(
+        vi.fn().mockResolvedValue([
+          {
+            id: 'lesson-1',
+            classroomId: 'classroom-1',
+            courseTitle: '高等数学',
+            lessonTitle: '第一讲',
+            lessonState: 'in_class',
+            href: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1'
+          }
+        ])
+      ),
+      startQuestionDetection: vi.fn(async (handler: (event: any) => Promise<void>) => {
+        onQuestionEvent = handler;
+      })
+    } as unknown as BrowserController;
+    const service = new AutoplayMonitorService({
+      autoAnswerService: autoAnswerService as any,
+      browserController,
+      intervalMs: 100
+    });
+
+    await service.start();
+    await onQuestionEvent?.({
+      lessonId: 'lesson-1',
+      problemId: 'problem-20',
+      problemType: 2,
+      exerciseIndex: null,
+      routePath: '/lesson/fullscreen/v3/lesson-1/subjective/18',
+      isComplete: false,
+      imageUrl: null,
+      detectedAt: '2026-04-20T06:00:00.000Z',
+      pageIndex: 20,
+      source: 'curr-slide-event'
+    });
+
+    autoAnswerStatus = 'running';
+    await onQuestionEvent?.({
+      lessonId: 'lesson-1',
+      problemId: 'problem-21',
+      problemType: 1,
+      exerciseIndex: null,
+      routePath: '/lesson/fullscreen/v3/lesson-1/subjective/18',
+      isComplete: false,
+      imageUrl: null,
+      detectedAt: '2026-04-20T06:01:00.000Z',
+      pageIndex: 21,
+      source: 'curr-slide-event'
+    });
+
+    autoAnswerStatus = 'idle';
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(autoAnswerService.start).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        preferredQuestion: expect.objectContaining({ problemId: 'problem-20' })
+      })
+    );
+    expect(autoAnswerService.start).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        preferredQuestion: expect.objectContaining({ problemId: 'problem-21' })
+      })
+    );
+  });
 });

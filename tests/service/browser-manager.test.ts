@@ -789,14 +789,27 @@ describe('BrowserManager', () => {
     expect(openedUrl).toBeNull();
   });
 
-  it('submits lesson problem answers inside the page context', async () => {
+  it('submits lesson answers through direct fetch only', async () => {
     const runtime = createRuntime();
-    runtime.page.evaluate.mockResolvedValue({
-      ok: true,
-      code: 0,
-      message: 'OK',
-      responseJson: { code: 0, msg: 'OK' }
+    runtime.page.evaluate.mockImplementation(async (fn: (...args: any[]) => unknown, ...args: unknown[]) => {
+      (window as typeof window & Record<string, unknown>).request = {
+        post: vi.fn(async () => ({ code: 0, msg: 'from-request-post' }))
+      };
+      (window as typeof window & Record<string, unknown>).API = {
+        lesson: {
+          answer_problem: '/api/v3/lesson/problem/answer'
+        }
+      };
+      return fn(...args);
     });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ code: 0, msg: 'OK' })
+      })
+    );
     const manager = new BrowserManager({ launchBrowser: runtime.launch });
 
     await manager.start();
@@ -807,12 +820,18 @@ describe('BrowserManager', () => {
       result: ['B']
     });
 
-    expect(runtime.page.evaluate).toHaveBeenCalledWith(expect.any(Function), {
-      problemId: 'problem-13',
-      problemType: 1,
-      dt: 1776240367580,
-      result: ['B']
-    });
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v3/lesson/problem/answer',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          problemId: 'problem-13',
+          problemType: 1,
+          dt: 1776240367580,
+          result: ['B']
+        })
+      })
+    );
     expect(result).toMatchObject({
       ok: true,
       code: 0
@@ -1111,8 +1130,7 @@ describe('BrowserManager', () => {
         lessonId: 'lesson-1',
         problemId: 'problem-13',
         problemType: 1,
-        routePath: '/v3/lesson-1/exercise/13',
-        source: 'runtime-state'
+        routePath: '/v3/lesson-1/exercise/13'
       })
     );
   });
@@ -1124,6 +1142,17 @@ describe('BrowserManager', () => {
     document.body.innerHTML = '<div id="app"></div>';
     window.history.replaceState({}, '', '/lesson/fullscreen/v3/lesson-1/subjective/18');
     const app = document.querySelector('#app') as { __vue__?: any };
+    const cards = Array.from({ length: 19 }, (_item, index) =>
+      index === 18
+        ? {
+            problemID: 'problem-18',
+            problemType: 2,
+            isComplete: false,
+            pageIndex: 18,
+            body: 'old problem'
+          }
+        : null
+    );
     app.__vue__ = {
       $route: {
         name: 'subjective',
@@ -1299,7 +1328,55 @@ describe('BrowserManager', () => {
     expect(onEvent).not.toHaveBeenCalled();
   });
 
-  it('reads the latest unresolved lesson card when the page stays on the lesson root route', async () => {
+  it('does not fall back to route card runtime when currSlide.event is missing on a stale route', async () => {
+    const runtime = createRuntime();
+    runtime.page.url.mockReturnValue('https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/subjective/18');
+    runtime.page.evaluate.mockImplementation(async (fn: (...args: any[]) => unknown, ...args: unknown[]) => fn(...args));
+    document.body.innerHTML = '<div id="app"></div>';
+    window.history.replaceState({}, '', '/lesson/fullscreen/v3/lesson-1/subjective/18');
+    const app = document.querySelector('#app') as { __vue__?: any };
+    const cards = Array.from({ length: 19 }, (_item, index) =>
+      index === 18
+        ? {
+            problemID: 'problem-18',
+            problemType: 2,
+            isComplete: false,
+            pageIndex: 18,
+            body: 'old problem'
+          }
+        : null
+    );
+    app.__vue__ = {
+      $route: {
+        name: 'subjective',
+        params: { lessonID: 'lesson-1', index: '18' },
+        path: '/lesson/fullscreen/v3/lesson-1/subjective/18'
+      },
+      $store: {
+        state: {
+          currSlide: {
+            pageIndex: 20,
+            problemID: 'problem-20',
+            problemType: 2,
+            isComplete: false,
+            event: null
+          },
+          cards
+        }
+      },
+      $children: [{ problemMap: new Map() }],
+      $watch: () => () => undefined
+    };
+    const manager = new BrowserManager({ launchBrowser: runtime.launch });
+    const onEvent = vi.fn();
+
+    await manager.start();
+    await manager.startQuestionDetection(onEvent);
+
+    expect(onEvent).not.toHaveBeenCalled();
+  });
+
+  it('returns null when the page stays on the lesson root route without a current problem event', async () => {
     const runtime = createRuntime();
     runtime.page.url.mockReturnValue('https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1');
     runtime.page.evaluate.mockImplementation(async (fn: (...args: any[]) => unknown, ...args: unknown[]) => fn(...args));
@@ -1360,16 +1437,7 @@ describe('BrowserManager', () => {
 
     await manager.start();
 
-    await expect(manager.readExerciseRuntimeState()).resolves.toEqual(
-      expect.objectContaining({
-        lessonId: 'lesson-1',
-        exerciseIndex: '1',
-        problemId: 'problem-15',
-        problemType: 1,
-        questionText: '15 题题干',
-        routePath: '/lesson/fullscreen/v3/lesson-1/exercise/1'
-      })
-    );
+    await expect(manager.readExerciseRuntimeState()).resolves.toBeNull();
   });
 
   it('waits before navigating into the active lesson when detection starts on the home page', async () => {
