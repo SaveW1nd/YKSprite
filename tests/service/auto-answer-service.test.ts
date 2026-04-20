@@ -66,6 +66,114 @@ const createCollectService = () => {
 };
 
 describe('AutoAnswerService', () => {
+  it('uses preferredQuestion.routePath as the only answer target when a pushed question is provided', async () => {
+    const service = new AutoAnswerService({
+      browserController: {
+        getStatus: vi.fn(() => ({
+          status: 'running',
+          engine: 'chromium',
+          headless: true,
+          mode: 'headless',
+          startedAt: '2026-04-20T00:00:00.000Z',
+          pageUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1',
+          lastError: null
+        })),
+        getSessionState: vi.fn(async () => ({
+          hasSession: true,
+          savedAt: '2026-04-20T00:00:00.000Z',
+          origin: 'www.yuketang.cn',
+          cookieCount: 2,
+          currentUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1',
+          pageTitle: '雨课堂',
+          mode: 'headless'
+        })),
+        discoverLessons: vi.fn(async () => [
+          {
+            id: 'lesson-1',
+            classroomId: 'classroom-1',
+            courseTitle: '高等数学',
+            lessonTitle: '第一讲',
+            lessonState: 'in_class',
+            href: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1'
+          }
+        ]),
+        listExerciseEntries: vi.fn(async () => {
+          throw new Error('listExerciseEntries should not be used');
+        }),
+        readExerciseRuntimeState: vi.fn(async () => null)
+      } as any,
+      runtimeRepository: {} as any,
+      assistRepository: {} as any,
+      autoAnswerRepository: {
+        upsertRun: vi.fn(),
+        listRuns: vi.fn(() => []),
+        getRun: vi.fn(() => null),
+        listAttemptsByRunId: vi.fn(() => [])
+      } as any,
+      questionSolveService: {} as any,
+      automationStore: {
+        executeTask: vi.fn(async (_t: string, _s: string, task: () => Promise<unknown>) => task())
+      } as any
+    });
+
+    const target = await (service as any).discoverCurrentTarget(
+      {
+        id: 'lesson-1',
+        classroomId: 'classroom-1',
+        courseTitle: '高等数学',
+        lessonTitle: '第一讲',
+        lessonState: 'in_class',
+        href: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1'
+      },
+      {
+        lessonId: 'lesson-1',
+        problemId: 'problem-20',
+        problemType: 2,
+        exerciseIndex: null,
+        routePath: '/lesson/fullscreen/v3/lesson-1/subjective/18',
+        isComplete: false,
+        imageUrl: null,
+        detectedAt: '2026-04-20T06:00:00.000Z',
+        pageIndex: 20,
+        source: 'curr-slide-event'
+      }
+    );
+
+    expect(target).toEqual(
+      expect.objectContaining({
+        entryId: 'preferred-problem-20',
+        exerciseUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/subjective/18'
+      })
+    );
+  });
+
+  it('fails early when no preferredQuestion is provided to the answer execution path', async () => {
+    const service = new AutoAnswerService({
+      browserController: {} as any,
+      runtimeRepository: {} as any,
+      assistRepository: {} as any,
+      autoAnswerRepository: { upsertRun: vi.fn() } as any,
+      questionSolveService: {} as any,
+      automationStore: {
+        executeTask: vi.fn(async (_t: string, _s: string, task: () => Promise<unknown>) => task())
+      } as any
+    });
+
+    await expect(
+      (service as any).discoverCurrentTarget(
+        {
+          id: 'lesson-1',
+          classroomId: 'classroom-1',
+          courseTitle: '高等数学',
+          lessonTitle: '第一讲',
+          lessonState: 'in_class',
+          href: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1'
+        },
+        null
+      )
+    ).resolves.toBeNull();
+  });
+
   it('records an ai_request_failed trace when solving throws an api error', async () => {
     const traceStore = new AutoplayDebugTraceStore();
     const attempt = {

@@ -3,7 +3,7 @@ import { normalizeAiErrorMessage } from '../assist/ai-error-message.js';
 import type { AutomationStore } from '../automation/automation-store.js';
 import type {
   BrowserController,
-  ExerciseEntry,
+  DetectedQuestionEvent,
   ExerciseRuntimeState,
   LessonProblemSubmitPayload,
   LessonProblemSubmitResult,
@@ -181,7 +181,7 @@ export class AutoAnswerService {
     };
   }
 
-  async start() {
+  async start(input: { preferredQuestion: DetectedQuestionEvent }) {
     if (this.activePromise) {
       return this.getStatus();
     }
@@ -216,7 +216,7 @@ export class AutoAnswerService {
     };
     this.autoAnswerRepository.upsertRun(run);
 
-    this.activePromise = this.executeRun(run).finally(() => {
+    this.activePromise = this.executeRun(run, input.preferredQuestion).finally(() => {
       this.activePromise = null;
       this.stopRequested = false;
     });
@@ -229,7 +229,7 @@ export class AutoAnswerService {
     return this.getStatus();
   }
 
-  private async executeRun(run: AutoAnswerRunRecord) {
+  private async executeRun(run: AutoAnswerRunRecord, preferredQuestion: DetectedQuestionEvent) {
     try {
       const activeLesson = await this.ensureActiveLesson();
       if (!activeLesson?.id) {
@@ -240,7 +240,7 @@ export class AutoAnswerService {
       this.status.lessonId = activeLesson.id;
       this.autoAnswerRepository.upsertRun(run);
 
-      const currentTarget = await this.discoverCurrentTarget(activeLesson);
+      const currentTarget = await this.discoverCurrentTarget(activeLesson, preferredQuestion);
       run.totalCount = currentTarget ? 1 : 0;
       this.status.totalCount = run.totalCount;
       this.autoAnswerRepository.upsertRun(run);
@@ -391,72 +391,24 @@ export class AutoAnswerService {
     return null;
   }
 
-  private async discoverCurrentTarget(activeLesson: LessonCandidate): Promise<AutoAnswerTarget | null> {
-    return this.discoverCurrentExerciseTarget(activeLesson);
-  }
-
-  private async discoverCurrentExerciseTarget(activeLesson: LessonCandidate): Promise<AutoAnswerTarget | null> {
-    const lessonId = activeLesson.id;
-    const currentUrl = this.browserController.getStatus().pageUrl;
-    const exerciseEntries = await this.browserController.listExerciseEntries();
-    const latestUnansweredEntry = [...exerciseEntries]
-      .reverse()
-      .find((entry) => this.isRuntimeBackedTarget(entry, lessonId));
-    if (latestUnansweredEntry) {
-      return {
-        entryId: latestUnansweredEntry.entryId,
-        exerciseUrl: latestUnansweredEntry.exerciseUrl,
-        runtimeState: latestUnansweredEntry.runtimeState ?? null
-      };
+  private async discoverCurrentTarget(
+    activeLesson: LessonCandidate,
+    preferredQuestion: DetectedQuestionEvent | null
+  ): Promise<AutoAnswerTarget | null> {
+    if (!preferredQuestion?.routePath || preferredQuestion.lessonId !== activeLesson.id) {
+      return null;
     }
 
-    const runtimeState = await this.browserController.readExerciseRuntimeState();
-    if (
-      runtimeState &&
-      runtimeState.lessonId === lessonId &&
-      !runtimeState.isComplete &&
-      !this.hasRecentlySubmittedProblem(lessonId, runtimeState.problemId) &&
-      currentUrl
-    ) {
-      return {
-        entryId: `current-exercise-${runtimeState.exerciseIndex ?? runtimeState.problemId}`,
-        exerciseUrl: currentUrl,
-        runtimeState
-      };
-    }
-
-    if (activeLesson.href && currentUrl !== activeLesson.href) {
-      await this.browserController.navigate(activeLesson.href);
-    }
-
-    const refreshedState = await this.browserController.readExerciseRuntimeState();
-    const refreshedUrl = this.browserController.getStatus().pageUrl;
-    if (
-      !refreshedState ||
-      refreshedState.lessonId !== lessonId ||
-      refreshedState.isComplete ||
-      this.hasRecentlySubmittedProblem(lessonId, refreshedState.problemId) ||
-      !refreshedUrl
-    ) {
+    const baseUrl = this.browserController.getStatus().pageUrl ?? activeLesson.href;
+    if (!baseUrl) {
       return null;
     }
 
     return {
-      entryId: `current-exercise-${refreshedState.exerciseIndex ?? refreshedState.problemId}`,
-      exerciseUrl: refreshedUrl,
-      runtimeState: refreshedState
+      entryId: `preferred-${preferredQuestion.problemId}`,
+      exerciseUrl: new URL(preferredQuestion.routePath, baseUrl).toString(),
+      runtimeState: null
     };
-  }
-
-  private isRuntimeBackedTarget(entry: ExerciseEntry, lessonId: string) {
-    return (
-      entry.lessonId === lessonId &&
-      entry.status === 'unanswered' &&
-      !entry.runtimeState?.isComplete &&
-      Boolean(entry.runtimeState?.problemId) &&
-      Boolean(entry.runtimeState?.problemType) &&
-      !this.hasRecentlySubmittedProblem(lessonId, entry.runtimeState?.problemId ?? null)
-    );
   }
 
   private hasRecentlySubmittedProblem(lessonId: string, problemId: string | null) {
