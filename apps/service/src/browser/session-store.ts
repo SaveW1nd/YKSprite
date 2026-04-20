@@ -1,9 +1,9 @@
-import type { Cookie } from 'playwright';
+import type { BrowserCookie } from './browser-controller.js';
 import { createDatabaseClient, type DatabaseClient } from '../db/client.js';
 import { SessionRepository, type StoredSession as RepositoryStoredSession } from '../db/session-repository.js';
 
 export type StoredSession = {
-  cookies: Cookie[];
+  cookies: BrowserCookie[];
   savedAt: string;
   origin: string;
   currentUrl?: string | null;

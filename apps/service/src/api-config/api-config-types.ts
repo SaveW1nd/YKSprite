@@ -1,34 +1,31 @@
-export type ApiProvider = 'qwen_vl' | 'openai';
-
-export type ApiProviderConfigRecord = {
-  provider: ApiProvider;
-  enabled: boolean;
-  apiKey: string | null;
-  baseUrl: string | null;
-  model: string | null;
+export type QwenApiKeyRecord = {
+  id: number;
+  name: string;
+  apiKey: string;
+  isActive: boolean;
+  createdAt: string;
   updatedAt: string;
 };
 
-export type ApiProviderConfigInput = {
-  enabled: boolean;
-  apiKey: string | null;
-  baseUrl: string | null;
-  model: string | null;
-};
-
-export type ApiProviderConfigSnapshot = {
-  provider: ApiProvider;
-  label: string;
-  enabled: boolean;
-  hasApiKey: boolean;
-  apiKeyMasked: string | null;
-  baseUrl: string | null;
-  model: string | null;
-  source: 'database' | 'unset';
-  lastError: string | null;
+export type QwenApiKeySnapshot = {
+  id: number;
+  name: string;
+  apiKeyMasked: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type ApiConfigSnapshot = {
-  defaultVisionProvider: ApiProvider;
-  providers: Record<ApiProvider, ApiProviderConfigSnapshot>;
+  model: string;
+  hasActiveKey: boolean;
+  activeKeyId: number | null;
+  activeKeyName: string | null;
+  keys: QwenApiKeySnapshot[];
+};
+
+export type QwenRuntimeConfig = {
+  apiKey: string | null;
+  baseUrl: string;
+  model: string;
 };

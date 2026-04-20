@@ -46,6 +46,35 @@ export class AutoAnswerRepository {
       .get() as AutoAnswerAttemptRecord | undefined;
   }
 
+  findLatestSuccessfulAttemptForProblem(lessonId: string, problemId: string) {
+    const attempts = this.database.db
+      .select()
+      .from(autoAnswerAttemptsTable)
+      .orderBy(desc(autoAnswerAttemptsTable.submittedAt), desc(autoAnswerAttemptsTable.id))
+      .all() as AutoAnswerAttemptRecord[];
+
+    const runsById = new Map(
+      this.database.db
+        .select()
+        .from(autoAnswerRunsTable)
+        .all()
+        .map((run) => [run.id, run])
+    );
+
+    return (
+      attempts.find((attempt) => {
+        if (attempt.problemId !== problemId) {
+          return false;
+        }
+        if (!['submitted', 'already_completed'].includes(attempt.submitStatus)) {
+          return false;
+        }
+        const run = runsById.get(attempt.runId);
+        return run?.lessonId === lessonId;
+      }) ?? null
+    );
+  }
+
   upsertAttempt(attempt: AutoAnswerAttemptRecord) {
     this.database.db.insert(autoAnswerAttemptsTable).values(attempt).onConflictDoUpdate({
       target: autoAnswerAttemptsTable.id,

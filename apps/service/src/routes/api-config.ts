@@ -1,40 +1,51 @@
 import type { FastifyInstance } from 'fastify';
 import type { ApiConfigService } from '../api-config/api-config-service.js';
-import type { ApiProvider } from '../api-config/api-config-types.js';
 
 export const registerApiConfigRoutes = (app: FastifyInstance, apiConfigService: ApiConfigService) => {
   app.get('/api-config', async () => apiConfigService.getSnapshot());
 
-  app.patch('/api-config/providers/:provider', async (request, reply) => {
-    const provider = (request.params as { provider: ApiProvider }).provider;
-    const body = (request.body as {
-      enabled?: boolean;
-      apiKey?: string | null;
-      baseUrl?: string | null;
-      model?: string | null;
-    } | undefined) ?? {};
+  app.post('/api-config/qwen-keys', async (request, reply) => {
+    const body = (request.body as { name?: string; apiKey?: string } | undefined) ?? {};
+    const name = body.name?.trim() ?? '';
+    const apiKey = body.apiKey?.trim() ?? '';
 
-    if (provider !== 'qwen_vl' && provider !== 'openai') {
+    if (!name || !apiKey) {
       reply.code(400);
-      return { message: 'Unsupported provider' };
+      return { message: 'name and apiKey are required' };
     }
 
-    return apiConfigService.updateProviderConfig(provider, {
-      enabled: body.enabled ?? true,
-      apiKey: body.apiKey?.trim() || null,
-      baseUrl: body.baseUrl?.trim() || null,
-      model: body.model?.trim() || null
-    });
+    return apiConfigService.addQwenKey({ name, apiKey });
   });
 
-  app.patch('/api-config/default-provider', async (request, reply) => {
-    const provider = (request.body as { provider?: ApiProvider } | undefined)?.provider;
+  app.patch('/api-config/qwen-keys/:id/enable', async (request, reply) => {
+    const id = Number((request.params as { id: string }).id);
 
-    if (provider !== 'qwen_vl' && provider !== 'openai') {
+    if (!Number.isInteger(id) || id <= 0) {
       reply.code(400);
-      return { message: 'Unsupported provider' };
+      return { message: 'invalid key id' };
     }
 
-    return apiConfigService.setDefaultVisionProvider(provider);
+    try {
+      return apiConfigService.enableQwenKey(id);
+    } catch (error) {
+      reply.code(404);
+      return { message: error instanceof Error ? error.message : 'Qwen API key not found' };
+    }
+  });
+
+  app.delete('/api-config/qwen-keys/:id', async (request, reply) => {
+    const id = Number((request.params as { id: string }).id);
+
+    if (!Number.isInteger(id) || id <= 0) {
+      reply.code(400);
+      return { message: 'invalid key id' };
+    }
+
+    try {
+      return apiConfigService.deleteQwenKey(id);
+    } catch (error) {
+      reply.code(404);
+      return { message: error instanceof Error ? error.message : 'Qwen API key not found' };
+    }
   });
 };

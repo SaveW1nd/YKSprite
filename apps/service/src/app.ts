@@ -66,7 +66,8 @@ export const buildServiceApp = (options: BuildServiceAppOptions = {}) => {
   const apiConfigService = new ApiConfigService(apiConfigRepository);
   const debugTraceStore = options.debugTraceStore ?? new AutoplayDebugTraceStore();
   const accountEventHub = new AccountEventHub();
-  const visionAnalysisService = options.visionAnalysisService ?? new VisionAnalysisService(assistRepository, undefined, debugTraceStore);
+  const visionAnalysisService =
+    options.visionAnalysisService ?? new VisionAnalysisService(assistRepository, undefined, debugTraceStore, apiConfigService);
   const automationStore = new AutomationStore(taskRepository);
   const questionSolveService = new QuestionSolveService(assistRepository, visionAnalysisService);
   let accountMonitorManager: AccountMonitorManager;

@@ -4,8 +4,8 @@ import { extractQuestionsFromHtml } from './question-extractor.js';
 
 const pickLessonState = (html: string, pageTitle: string | null, currentUrl: string | null): LessonState => {
   const target = `${pageTitle ?? ''} ${html}`;
-  if (currentUrl && /\/(exercise|subjective)\//.test(currentUrl)) return 'in_class';
   if (/已结束|下课|课程结束/.test(target)) return 'ended';
+  if (currentUrl && /\/(exercise|subjective)\//.test(currentUrl)) return 'in_class';
   if (/未开始|即将开始|待上课/.test(target)) return 'waiting';
   if (/上课中|课中|进行中/.test(target)) return 'in_class';
   return 'idle';

@@ -14,6 +14,15 @@ export const apiProviderConfigsTable = sqliteTable('api_provider_configs', {
   updatedAt: text('updated_at').notNull()
 });
 
+export const qwenApiKeysTable = sqliteTable('qwen_api_keys', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull(),
+  apiKey: text('api_key').notNull(),
+  isActive: integer('is_active', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull()
+});
+
 export const sessionsTable = sqliteTable('sessions', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   source: text('source').notNull(),

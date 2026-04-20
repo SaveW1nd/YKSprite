@@ -3,6 +3,8 @@
   "private": true,
   "packageManager": "pnpm@10.8.0",
   "scripts": {
+    "start:service": "node apps/service/dist/index.js",
+    "watch:autoplay-debug": "node scripts/watch-autoplay-debug.mjs",
     "lint": "pnpm -r --if-present lint",
     "test": "vitest run",
     "build": "pnpm -r --if-present build",
@@ -17,13 +19,10 @@
     ]
   },
   "devDependencies": {
-    "@headlessui/vue": "^1.7.23",
-    "@vitejs/plugin-vue": "^5.2.4",
-    "@vue/test-utils": "^2.4.6",
     "@yksprite/core": "workspace:*",
     "jsdom": "^26.1.0",
+    "playwright": "^1.59.1",
     "typescript": "^5.8.3",
-    "vitest": "^3.1.2",
-    "vue": "^3.5.13"
+    "vitest": "^3.1.2"
   }
 }

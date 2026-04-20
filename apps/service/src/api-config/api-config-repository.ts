@@ -1,16 +1,62 @@
-import { eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import type { DatabaseClient } from '../db/client.js';
-import { apiProviderConfigsTable, schemaMetaTable } from '../db/schema.js';
-import type { ApiProvider, ApiProviderConfigInput, ApiProviderConfigRecord } from './api-config-types.js';
+import { qwenApiKeysTable } from '../db/schema.js';
+import type { QwenApiKeyRecord } from './api-config-types.js';
 
 export class ApiConfigRepository {
   constructor(private readonly database: DatabaseClient) {}
 
-  getProviderConfig(provider: ApiProvider): ApiProviderConfigRecord | null {
+  listQwenKeys(): QwenApiKeyRecord[] {
+    return this.database.db
+      .select()
+      .from(qwenApiKeysTable)
+      .orderBy(asc(qwenApiKeysTable.id))
+      .all()
+      .map((row) => ({
+        id: row.id,
+        name: row.name,
+        apiKey: row.apiKey,
+        isActive: row.isActive,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt
+      }));
+  }
+
+  createQwenKey(input: { name: string; apiKey: string }) {
+    const timestamp = new Date().toISOString();
+    const result = this.database.db
+      .insert(qwenApiKeysTable)
+      .values({
+        name: input.name,
+        apiKey: input.apiKey,
+        isActive: this.listQwenKeys().length === 0,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      })
+      .run();
+
+    return Number(result.lastInsertRowid);
+  }
+
+  enableQwenKey(id: number) {
+    const timestamp = new Date().toISOString();
+    this.database.db.update(qwenApiKeysTable).set({ isActive: false, updatedAt: timestamp }).run();
+    this.database.db
+      .update(qwenApiKeysTable)
+      .set({ isActive: true, updatedAt: timestamp })
+      .where(eq(qwenApiKeysTable.id, id))
+      .run();
+  }
+
+  deleteQwenKey(id: number) {
+    this.database.db.delete(qwenApiKeysTable).where(eq(qwenApiKeysTable.id, id)).run();
+  }
+
+  getQwenKey(id: number): QwenApiKeyRecord | null {
     const row = this.database.db
       .select()
-      .from(apiProviderConfigsTable)
-      .where(eq(apiProviderConfigsTable.provider, provider))
+      .from(qwenApiKeysTable)
+      .where(eq(qwenApiKeysTable.id, id))
       .get();
 
     if (!row) {
@@ -18,56 +64,33 @@ export class ApiConfigRepository {
     }
 
     return {
-      provider: row.provider as ApiProvider,
-      enabled: row.enabled,
+      id: row.id,
+      name: row.name,
       apiKey: row.apiKey,
-      baseUrl: row.baseUrl,
-      model: row.model,
+      isActive: row.isActive,
+      createdAt: row.createdAt,
       updatedAt: row.updatedAt
     };
   }
 
-  saveProviderConfig(provider: ApiProvider, input: ApiProviderConfigInput) {
-    const updatedAt = new Date().toISOString();
-    this.database.db
-      .insert(apiProviderConfigsTable)
-      .values({
-        provider,
-        enabled: input.enabled,
-        apiKey: input.apiKey,
-        baseUrl: input.baseUrl,
-        model: input.model,
-        updatedAt
-      })
-      .onConflictDoUpdate({
-        target: apiProviderConfigsTable.provider,
-        set: {
-          enabled: input.enabled,
-          apiKey: input.apiKey,
-          baseUrl: input.baseUrl,
-          model: input.model,
-          updatedAt
-        }
-      })
-      .run();
-  }
-
-  getSchemaMeta(key: string) {
-    return this.database.db
+  getActiveQwenKey(): QwenApiKeyRecord | null {
+    const row = this.database.db
       .select()
-      .from(schemaMetaTable)
-      .where(eq(schemaMetaTable.key, key))
-      .get() ?? null;
-  }
+      .from(qwenApiKeysTable)
+      .where(eq(qwenApiKeysTable.isActive, true))
+      .get();
 
-  setSchemaMeta(key: string, value: string) {
-    this.database.db
-      .insert(schemaMetaTable)
-      .values({ key, value })
-      .onConflictDoUpdate({
-        target: schemaMetaTable.key,
-        set: { value }
-      })
-      .run();
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      name: row.name,
+      apiKey: row.apiKey,
+      isActive: row.isActive,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt
+    };
   }
 }

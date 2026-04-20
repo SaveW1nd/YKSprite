@@ -44,6 +44,15 @@ const applyMigrations = (sqlite: Database.Database) => {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS qwen_api_keys (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      api_key TEXT NOT NULL,
+      is_active INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       source TEXT NOT NULL,

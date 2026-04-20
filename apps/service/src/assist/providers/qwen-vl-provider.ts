@@ -1,10 +1,12 @@
 import { requestOpenAICompatibleJson } from './openai-compatible.js';
+import type { QwenRuntimeConfig } from '../../api-config/api-config-types.js';
 
 export const analyzeWithQwenVl = async (input: {
   imagePath: string;
   prompt: string;
+  config: QwenRuntimeConfig;
 }) => {
-  const apiKey = process.env.QWEN_VL_API_KEY;
+  const apiKey = input.config.apiKey;
   if (!apiKey) {
     throw new Error('QWEN_VL_API_KEY is not configured');
   }
@@ -12,9 +14,12 @@ export const analyzeWithQwenVl = async (input: {
   return requestOpenAICompatibleJson(
     {
       apiKey,
-      endpoint: process.env.QWEN_VL_BASE_URL ?? 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions',
-      model: process.env.QWEN_VL_MODEL ?? 'qwen-vl-max'
+      endpoint: input.config.baseUrl,
+      model: input.config.model
     },
-    input
+    {
+      imagePath: input.imagePath,
+      prompt: input.prompt
+    }
   );
 };

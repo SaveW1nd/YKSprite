@@ -1,10 +1,10 @@
 import { desc, eq } from 'drizzle-orm';
-import type { Cookie } from 'playwright';
+import type { BrowserCookie } from '../browser/browser-controller.js';
 import type { DatabaseClient } from './client.js';
 import { sessionsTable } from './schema.js';
 
 export type StoredSession = {
-  cookies: Cookie[];
+  cookies: BrowserCookie[];
   savedAt: string;
   origin: string;
   currentUrl: string | null;
@@ -22,7 +22,7 @@ export class SessionRepository {
     }
 
     return {
-      cookies: JSON.parse(row.cookiesJson) as Cookie[],
+      cookies: JSON.parse(row.cookiesJson) as BrowserCookie[],
       savedAt: row.savedAt,
       origin: row.origin,
       currentUrl: row.currentUrl,

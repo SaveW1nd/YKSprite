@@ -14,7 +14,7 @@ afterEach(() => {
 });
 
 describe('api-config routes', () => {
-  it('reads and updates the qwen provider config snapshot', async () => {
+  it('adds, enables, and deletes qwen api keys', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'yksprite-api-config-'));
     cleanupPaths.push(root);
     const databasePath = path.join(root, 'data', 'yksprite.db');
@@ -22,33 +22,50 @@ describe('api-config routes', () => {
     const app = buildServiceApp({ databaseClient });
 
     try {
-      const updateResponse = await app.inject({
-        method: 'PATCH',
-        url: '/api-config/providers/qwen_vl',
+      const createPrimaryResponse = await app.inject({
+        method: 'POST',
+        url: '/api-config/qwen-keys',
         payload: {
-          enabled: true,
-          apiKey: 'qwen-test-key',
-          baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions',
-          model: 'qwen-vl-max'
+          name: '主账号 key',
+          apiKey: 'qwen-test-key-1'
+        }
+      });
+      const createSecondaryResponse = await app.inject({
+        method: 'POST',
+        url: '/api-config/qwen-keys',
+        payload: {
+          name: '备用 key',
+          apiKey: 'qwen-test-key-2'
         }
       });
 
-      expect(updateResponse.statusCode).toBe(200);
+      expect(createPrimaryResponse.statusCode).toBe(200);
+      expect(createSecondaryResponse.statusCode).toBe(200);
+      const createdSnapshot = createSecondaryResponse.json();
 
-      const getResponse = await app.inject({
-        method: 'GET',
-        url: '/api-config'
+      const enableResponse = await app.inject({
+        method: 'PATCH',
+        url: `/api-config/qwen-keys/${createdSnapshot.keys[1].id}/enable`
+      });
+      expect(enableResponse.statusCode).toBe(200);
+      expect(enableResponse.json()).toMatchObject({
+        activeKeyName: '备用 key',
+        hasActiveKey: true,
+        model: 'qwen3-vl-flash-2026-01-22'
       });
 
-      expect(getResponse.statusCode).toBe(200);
-      expect(getResponse.json()).toMatchObject({
-        defaultVisionProvider: 'qwen_vl',
-        providers: {
-          qwen_vl: {
-            hasApiKey: true,
-            model: 'qwen-vl-max'
-          }
-        }
+      const deleteResponse = await app.inject({
+        method: 'DELETE',
+        url: `/api-config/qwen-keys/${createdSnapshot.keys[0].id}`
+      });
+      expect(deleteResponse.statusCode).toBe(200);
+      expect(deleteResponse.json()).toMatchObject({
+        keys: [
+          expect.objectContaining({
+            name: '备用 key',
+            isActive: true
+          })
+        ]
       });
     } finally {
       await app.close();

@@ -1,16 +1,25 @@
-import vue from '@vitejs/plugin-vue';
+import path from 'node:path';
 import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 
 export default defineConfig({
-  plugins: [vue()],
+  root: '.',
+  plugins: [react()],
   server: {
     proxy: {
-      '/health': 'http://127.0.0.1:3000',
-      '/browser': 'http://127.0.0.1:3000',
-      '/runtime': 'http://127.0.0.1:3000',
-      '/tasks': 'http://127.0.0.1:3000',
-      '/events': 'http://127.0.0.1:3000',
-      '/assist': 'http://127.0.0.1:3000'
+      '/api': {
+        target: 'http://127.0.0.1:3000',
+        rewrite: (path) => path.replace(/^\/api/, '')
+      }
+    }
+  },
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true
+  },
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, 'src')
     }
   }
 });

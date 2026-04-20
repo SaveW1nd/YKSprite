@@ -2,7 +2,6 @@ import type { FastifyInstance } from 'fastify';
 import type { AutomationStore } from '../automation/automation-store.js';
 import type { BrowserController } from '../browser/browser-controller.js';
 import type { RuntimeRepository } from '../db/runtime-repository.js';
-import type { RuntimeMonitor } from '../runtime/runtime-monitor.js';
 import { extractQuestionsFromHtml } from '../runtime/question-extractor.js';
 import { probeRuntimeStatus } from '../runtime/runtime-probe.js';
 
@@ -10,8 +9,7 @@ export const registerRuntimeRoutes = (
   app: FastifyInstance,
   browserController: BrowserController,
   runtimeRepository: RuntimeRepository,
-  automationStore: AutomationStore,
-  runtimeMonitor: RuntimeMonitor
+  automationStore: AutomationStore
 ) => {
   app.get('/runtime/status', async () => {
     const snapshot = await browserController.inspectPage();
@@ -53,17 +51,5 @@ export const registerRuntimeRoutes = (
         currentQuestion: runtimeRepository.getCurrentQuestion()
       };
     });
-  });
-
-  app.get('/runtime/monitor', async () => {
-    return runtimeMonitor.getStatus();
-  });
-
-  app.post('/runtime/monitor/start', async () => {
-    return runtimeMonitor.start();
-  });
-
-  app.post('/runtime/monitor/stop', async () => {
-    return runtimeMonitor.stop();
   });
 };

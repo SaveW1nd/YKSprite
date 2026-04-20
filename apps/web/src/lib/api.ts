@@ -1,111 +1,49 @@
-export type HealthResponse = {
-  status: string;
-  name: string;
-};
-
-export type BrowserStatus = {
-  status: 'idle' | 'starting' | 'running' | 'stopping' | 'error';
-  engine: 'chromium';
-  headless: true;
-  mode: 'headless' | 'visible-login' | null;
-  startedAt: string | null;
-  pageUrl: string | null;
-  lastError: string | null;
-};
-
-export type SessionState = {
-  hasSession: boolean;
-  savedAt: string | null;
-  origin: string | null;
-  cookieCount: number;
-  currentUrl: string | null;
-  pageTitle: string | null;
-  mode: 'headless' | 'visible-login' | null;
-};
-
-export type RuntimeStatus = {
-  connected: boolean;
-  loggedIn: boolean;
-  courseTitle: string | null;
-  lessonState: 'idle' | 'in_class' | 'waiting' | 'ended';
-  checkinAvailable: boolean;
-  questionDetected: boolean;
-  currentUrl: string | null;
-  pageTitle: string | null;
-  lastScannedAt: string | null;
-};
-
-export type RuntimeMonitorStatus = {
-  enabled: boolean;
-  phase: 'idle' | 'home_polling' | 'class_monitoring' | 'returning_home' | 'error_backoff';
-  currentCourse: string | null;
-  currentLessonId: string | null;
+export type ManagedAccount = {
+  id: number;
+  userId: string | null;
+  name: string | null;
+  monitoringEnabled?: boolean;
+  accountKey: string;
+  platform: string;
+  status: 'healthy' | 'error';
   lastCheckedAt: string | null;
-  lastTransitionAt: string | null;
+  lastErrorReason: string | null;
+  note: string | null;
+  createdAt: string;
+  monitorStatus?: 'idle' | 'starting' | 'monitoring' | 'error';
+  monitorUpdatedAt?: string | null;
+  monitorLastError?: string | null;
+  currentClassroom?: {
+    lessonId: string;
+    classroomId: string | null;
+    courseTitle: string;
+    classroomTitle: string | null;
+    status: 'in_class' | 'idle';
+    detectedAt: string;
+  } | null;
+  recentLogs?: Array<{
+    id: number;
+    at: string;
+    type: string;
+    message: string;
+  }>;
+};
+
+export type AccountLoginState = {
+  loginSessionId: string | null;
+  accountId: number | null;
+  status: 'idle' | 'pending' | 'completed' | 'error';
+  qrCodeDataUrl: string | null;
   lastError: string | null;
-};
-
-export type QuestionOption = {
-  key: string;
-  value: string;
-};
-
-export type CurrentQuestion = {
-  id: number;
-  questionId: string;
-  courseTitle: string | null;
-  type: string;
-  body: string;
-  options: QuestionOption[];
-  slideIndex: number | null;
-  source: 'dom' | 'image' | 'mixed';
-  detectedAt: string;
-};
-
-export type RuntimeExerciseEntry = {
-  entryId: string;
-  lessonId: string | null;
-  status: 'unanswered' | 'answered' | 'expired';
-  analysisStatus?: 'pending' | 'processing' | 'done' | 'failed';
-  isActive: boolean;
-  pageHint: string | null;
-  remainingHint: string | null;
-  thumbnailUrl: string | null;
-  exerciseUrl: string | null;
+  notice?: string | null;
   updatedAt: string | null;
-  lastProcessedAt?: string | null;
-  lastError?: string | null;
 };
 
-export type QuestionCapture = {
-  id: number;
-  questionId: string;
-  filePath: string;
-  mimeType: string;
-  width: number | null;
-  height: number | null;
-  sha256: string | null;
-  createdAt: string;
+export type StartAccountLoginInput = {
+  platform: string;
 };
 
-export type VisionAnalysis = {
-  id: number;
-  questionId: string;
-  captureId: number;
-  provider: 'openai' | 'qwen_vl';
-  model: string;
-  promptVersion: string;
-  questionType: 'single_choice' | 'multiple_choice' | 'fill_in' | 'subjective';
-  questionText: string;
-  options: QuestionOption[];
-  suggestedAnswer: string | string[] | null;
-  confidence: 'low' | 'medium' | 'high';
-  reasoningSummary: string;
-  rawResponseJson: string;
-  createdAt: string;
-};
-
-export type TaskRecord = {
+export type AutomationTask = {
   id: string;
   type: string;
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
@@ -114,195 +52,181 @@ export type TaskRecord = {
   lastError: string | null;
   attempt: number;
   payloadSummary: string;
-  sourceRef: string | null;
 };
 
-export type EventRecord = {
+export type AutomationEvent = {
   id: string;
   level: 'info' | 'alert' | 'live';
   title: string;
   description: string;
   time: string;
-  taskId?: string | null;
-  eventType?: string | null;
 };
 
-export async function fetchHealth(): Promise<HealthResponse> {
-  const response = await fetch('/health');
-  if (!response.ok) {
-    throw new Error(`Health request failed with status ${response.status}`);
-  }
-  return response.json() as Promise<HealthResponse>;
-}
-
-const readBrowserResponse = async (response: Response): Promise<BrowserStatus> => {
-  if (!response.ok) {
-    throw new Error(`Browser request failed with status ${response.status}`);
-  }
-
-  return response.json() as Promise<BrowserStatus>;
+export type QwenApiKeySnapshot = {
+  id: number;
+  name: string;
+  apiKeyMasked: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 };
 
-const readSessionResponse = async (response: Response): Promise<SessionState> => {
-  if (!response.ok) {
-    throw new Error(`Session request failed with status ${response.status}`);
-  }
-
-  return response.json() as Promise<SessionState>;
+export type ApiConfigSnapshot = {
+  model: string;
+  hasActiveKey: boolean;
+  activeKeyId: number | null;
+  activeKeyName: string | null;
+  keys: QwenApiKeySnapshot[];
 };
 
-const readRuntimeResponse = async (response: Response): Promise<RuntimeStatus> => {
+export const fetchAccounts = async (): Promise<ManagedAccount[]> => {
+  const response = await fetch('/api/accounts');
   if (!response.ok) {
-    throw new Error(`Runtime request failed with status ${response.status}`);
+    throw new Error(`Failed to fetch accounts: ${response.status}`);
   }
 
-  return response.json() as Promise<RuntimeStatus>;
+  return (await response.json()) as ManagedAccount[];
 };
 
-const readQuestionResponse = async (response: Response): Promise<CurrentQuestion | null> => {
-  if (!response.ok) {
-    throw new Error(`Question request failed with status ${response.status}`);
+export const subscribeAccountEvents = (onChange: () => void): (() => void) => {
+  if (typeof EventSource === 'undefined') {
+    return () => undefined;
   }
 
-  return response.json() as Promise<CurrentQuestion | null>;
+  const source = new EventSource('/api/accounts/stream');
+  const handleChange = () => onChange();
+
+  source.addEventListener('accounts_changed', handleChange);
+
+  return () => {
+    source.removeEventListener('accounts_changed', handleChange);
+    source.close();
+  };
 };
 
-const readMonitorResponse = async (response: Response): Promise<RuntimeMonitorStatus> => {
+export const startAccountLogin = async (input: StartAccountLoginInput): Promise<AccountLoginState> => {
+  const response = await fetch('/api/accounts/login/start', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify(input)
+  });
+
   if (!response.ok) {
-    throw new Error(`Monitor request failed with status ${response.status}`);
+    throw new Error(`Failed to start account login: ${response.status}`);
   }
 
-  return response.json() as Promise<RuntimeMonitorStatus>;
+  return (await response.json()) as AccountLoginState;
 };
 
-const readCaptureResponse = async (response: Response): Promise<QuestionCapture | null> => {
+export const fetchAccountLoginState = async (loginSessionId: string): Promise<AccountLoginState> => {
+  const response = await fetch(`/api/accounts/login/${loginSessionId}/status`);
+
   if (!response.ok) {
-    throw new Error(`Capture request failed with status ${response.status}`);
+    throw new Error(`Failed to fetch account login state: ${response.status}`);
   }
 
-  return response.json() as Promise<QuestionCapture | null>;
+  return (await response.json()) as AccountLoginState;
 };
 
-const readAnalysisResponse = async (response: Response): Promise<VisionAnalysis | null> => {
-  if (!response.ok) {
-    throw new Error(`Analysis request failed with status ${response.status}`);
-  }
-
-  return response.json() as Promise<VisionAnalysis | null>;
-};
-
-const readExercisesResponse = async (response: Response): Promise<RuntimeExerciseEntry[]> => {
-  if (!response.ok) {
-    throw new Error(`Exercises request failed with status ${response.status}`);
-  }
-
-  return response.json() as Promise<RuntimeExerciseEntry[]>;
-};
-
-const readTasksResponse = async (response: Response): Promise<TaskRecord[]> => {
-  if (!response.ok) {
-    throw new Error(`Tasks request failed with status ${response.status}`);
-  }
-
-  return response.json() as Promise<TaskRecord[]>;
-};
-
-const readEventsResponse = async (response: Response): Promise<EventRecord[]> => {
-  if (!response.ok) {
-    throw new Error(`Events request failed with status ${response.status}`);
-  }
-
-  return response.json() as Promise<EventRecord[]>;
-};
-
-export async function fetchBrowserStatus(): Promise<BrowserStatus> {
-  const response = await fetch('/browser');
-  return readBrowserResponse(response);
-}
-
-export async function startBrowser(): Promise<BrowserStatus> {
-  const response = await fetch('/browser/start', {
+export const stopAccountLogin = async (loginSessionId: string): Promise<AccountLoginState> => {
+  const response = await fetch(`/api/accounts/login/${loginSessionId}/stop`, {
     method: 'POST'
   });
-  return readBrowserResponse(response);
-}
 
-export async function stopBrowser(): Promise<BrowserStatus> {
-  const response = await fetch('/browser/stop', {
-    method: 'POST'
+  if (!response.ok) {
+    throw new Error(`Failed to stop account login: ${response.status}`);
+  }
+
+  return (await response.json()) as AccountLoginState;
+};
+
+export const updateAccountMonitoring = async (accountId: number, enabled: boolean): Promise<ManagedAccount> => {
+  const response = await fetch(`/api/accounts/${accountId}/monitoring`, {
+    method: 'PATCH',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({ enabled })
   });
-  return readBrowserResponse(response);
-}
 
-export async function startLoginSession(): Promise<BrowserStatus> {
-  const response = await fetch('/browser/login/start', {
-    method: 'POST'
+  if (!response.ok) {
+    throw new Error(`Failed to update account monitoring: ${response.status}`);
+  }
+
+  return (await response.json()) as ManagedAccount;
+};
+
+export const deleteAccount = async (accountId: number): Promise<void> => {
+  const response = await fetch(`/api/accounts/${accountId}`, {
+    method: 'DELETE'
   });
-  return readBrowserResponse(response);
-}
 
-export async function fetchSessionState(): Promise<SessionState> {
-  const response = await fetch('/browser/session');
-  return readSessionResponse(response);
-}
+  if (!response.ok) {
+    throw new Error(`Failed to delete account: ${response.status}`);
+  }
+};
 
-export async function saveSession(): Promise<SessionState> {
-  const response = await fetch('/browser/session/save', {
-    method: 'POST'
+export const fetchAutomationTasks = async (): Promise<AutomationTask[]> => {
+  const response = await fetch('/api/tasks');
+  if (!response.ok) {
+    throw new Error(`Failed to fetch automation tasks: ${response.status}`);
+  }
+
+  return (await response.json()) as AutomationTask[];
+};
+
+export const fetchAutomationEvents = async (): Promise<AutomationEvent[]> => {
+  const response = await fetch('/api/events');
+  if (!response.ok) {
+    throw new Error(`Failed to fetch automation events: ${response.status}`);
+  }
+
+  return (await response.json()) as AutomationEvent[];
+};
+
+export const fetchApiConfig = async (): Promise<ApiConfigSnapshot> => {
+  const response = await fetch('/api/api-config');
+  if (!response.ok) {
+    throw new Error(`Failed to fetch api config: ${response.status}`);
+  }
+
+  return (await response.json()) as ApiConfigSnapshot;
+};
+
+export const addQwenApiKey = async (payload: { name: string; apiKey: string }): Promise<ApiConfigSnapshot> => {
+  const response = await fetch('/api/api-config/qwen-keys', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify(payload)
   });
-  return readSessionResponse(response);
-}
+  if (!response.ok) {
+    throw new Error(`Failed to add qwen api key: ${response.status}`);
+  }
 
-export async function fetchRuntimeStatus(): Promise<RuntimeStatus> {
-  const response = await fetch('/runtime/status');
-  return readRuntimeResponse(response);
-}
+  return (await response.json()) as ApiConfigSnapshot;
+};
 
-export async function fetchRuntimeMonitor(): Promise<RuntimeMonitorStatus> {
-  const response = await fetch('/runtime/monitor');
-  return readMonitorResponse(response);
-}
-
-export async function startRuntimeMonitor(): Promise<RuntimeMonitorStatus> {
-  const response = await fetch('/runtime/monitor/start', {
-    method: 'POST'
+export const enableQwenApiKey = async (id: number): Promise<ApiConfigSnapshot> => {
+  const response = await fetch(`/api/api-config/qwen-keys/${id}/enable`, {
+    method: 'PATCH',
   });
-  return readMonitorResponse(response);
-}
+  if (!response.ok) {
+    throw new Error(`Failed to enable qwen api key: ${response.status}`);
+  }
 
-export async function stopRuntimeMonitor(): Promise<RuntimeMonitorStatus> {
-  const response = await fetch('/runtime/monitor/stop', {
-    method: 'POST'
+  return (await response.json()) as ApiConfigSnapshot;
+};
+
+export const deleteQwenApiKey = async (id: number): Promise<ApiConfigSnapshot> => {
+  const response = await fetch(`/api/api-config/qwen-keys/${id}`, {
+    method: 'DELETE'
   });
-  return readMonitorResponse(response);
-}
-
-export async function fetchCurrentQuestion(): Promise<CurrentQuestion | null> {
-  const response = await fetch('/runtime/questions/current');
-  return readQuestionResponse(response);
-}
-
-export async function fetchRuntimeExercises(): Promise<RuntimeExerciseEntry[]> {
-  const response = await fetch('/runtime/exercises');
-  return readExercisesResponse(response);
-}
-
-export async function fetchQuestionCapture(questionId: string): Promise<QuestionCapture | null> {
-  const response = await fetch(`/assist/capture/${questionId}`);
-  return readCaptureResponse(response);
-}
-
-export async function fetchQuestionAnalysis(questionId: string): Promise<VisionAnalysis | null> {
-  const response = await fetch(`/assist/analysis/${questionId}`);
-  return readAnalysisResponse(response);
-}
-
-export async function fetchTasks(): Promise<TaskRecord[]> {
-  const response = await fetch('/tasks');
-  return readTasksResponse(response);
-}
-
-export async function fetchEvents(): Promise<EventRecord[]> {
-  const response = await fetch('/events');
-  return readEventsResponse(response);
-}
+  if (!response.ok) {
+    throw new Error(`Failed to delete qwen api key: ${response.status}`);
+  }
+  return (await response.json()) as ApiConfigSnapshot;
+};

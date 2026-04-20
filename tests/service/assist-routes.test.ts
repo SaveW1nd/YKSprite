@@ -1,4 +1,4 @@
-import { existsSync, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { buildServiceApp } from '../../apps/service/src/app';
 import type { BrowserController, PageSnapshot, ScreenshotPayload, SessionState } from '../../apps/service/src/browser/browser-controller';
@@ -175,13 +175,13 @@ describe('assist and automation routes', () => {
         savedImagePath: expect.stringContaining('/data/captures/'),
         confidenceNote: 'screenshot-captured-html-fallback'
       });
-      expect(existsSync(ocrPayload.savedImagePath)).toBe(true);
 
       expect(captureResponse.statusCode).toBe(200);
       expect(captureResponse.json()).toMatchObject({
         questionId: 'q-1',
         filePath: expect.stringContaining('/data/captures/')
       });
+      expect(captureResponse.json().filePath).toBe(ocrPayload.savedImagePath);
 
       expect(analysisResponse.statusCode).toBe(200);
       expect(analysisResponse.json()).toMatchObject({

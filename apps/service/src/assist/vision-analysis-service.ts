@@ -3,10 +3,11 @@ import path from 'node:path';
 import { formatVisionPrompt, type Problem } from '@yksprite/core';
 import type { AssistRepository } from '../db/assist-repository.js';
 import type { VisionAnalysis } from './assist-types.js';
-import { analyzeWithOpenAI } from './providers/openai-provider.js';
 import { analyzeWithQwenVl } from './providers/qwen-vl-provider.js';
-
-type AnalysisProvider = 'openai' | 'qwen_vl';
+import { normalizeAiErrorMessage } from './ai-error-message.js';
+import { resolveProjectPath } from '../project-paths.js';
+import type { AutoplayDebugTraceStore } from '../debug/autoplay-debug-trace.js';
+import type { ApiConfigService } from '../api-config/api-config-service.js';
 
 type AnalysisResultShape = {
   question_type: 'single_choice' | 'multiple_choice' | 'fill_in' | 'subjective';
@@ -43,7 +44,7 @@ type RawVisionAnalysis =
 export type VisionAnalysisServiceLike = {
   analyzeQuestionImage(input: {
     questionId: string;
-    provider?: AnalysisProvider;
+    provider?: 'qwen_vl' | 'openai';
   }): Promise<VisionAnalysis>;
 };
 
@@ -53,8 +54,6 @@ const promptTypeForQuestion = (type: string) => {
   if (type === 'subjective') return 'subjective';
   return 'single_choice';
 };
-
-const defaultProvider = () => (process.env.VISION_DEFAULT_PROVIDER === 'openai' ? 'openai' : 'qwen_vl');
 
 const buildProblemHint = (analysisSource: {
   type: string;
@@ -95,7 +94,7 @@ export const normalizeVisionAnalysis = (
   context: {
     questionId: string;
     captureId: number;
-    provider: AnalysisProvider;
+    provider: 'openai' | 'qwen_vl';
     model: string;
     promptVersion: string;
   }
@@ -116,14 +115,18 @@ export const normalizeVisionAnalysis = (
 });
 
 export class VisionAnalysisService implements VisionAnalysisServiceLike {
+  private static readonly defaultPromptDir = resolveProjectPath(import.meta.url, 'apps/service/prompts/vision');
+
   constructor(
     private readonly repository: AssistRepository,
-    private readonly promptDir = path.resolve(process.cwd(), 'apps/service/prompts/vision')
+    private readonly promptDir = VisionAnalysisService.defaultPromptDir,
+    private readonly traceStore: AutoplayDebugTraceStore | null = null,
+    private readonly apiConfigService: ApiConfigService | null = null
   ) {}
 
   async analyzeQuestionImage(input: {
     questionId: string;
-    provider?: AnalysisProvider;
+    provider?: 'qwen_vl' | 'openai';
   }): Promise<VisionAnalysis> {
     const capture = this.repository.getLatestCaptureByQuestionId(input.questionId);
     if (!capture) {
@@ -135,21 +138,59 @@ export class VisionAnalysisService implements VisionAnalysisServiceLike {
       throw new Error('Question not found');
     }
 
-    const provider = input.provider ?? defaultProvider();
+    const provider = 'qwen_vl' as const;
+    const providerConfig = this.apiConfigService?.getActiveQwenRuntimeConfig() ?? {
+      apiKey: null,
+      baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+      model: 'qwen3-vl-flash-2026-01-22'
+    };
     const promptType = promptTypeForQuestion(question.type);
     const template = await readFile(path.join(this.promptDir, `${promptType}.txt`), 'utf8');
     const prompt = formatVisionPrompt(template, buildProblemHint(question));
+    this.traceStore?.record('ai_prompt', `Prepared AI prompt for ${input.questionId}`, {
+      questionId: input.questionId,
+      provider,
+      promptType,
+      prompt
+    });
+    this.traceStore?.record('ai_request_started', `Sent AI request for ${input.questionId}`, {
+      questionId: input.questionId,
+      provider,
+      promptType
+    });
 
-    const response =
-      provider === 'openai'
-        ? await analyzeWithOpenAI({ imagePath: capture.filePath, prompt })
-        : await analyzeWithQwenVl({ imagePath: capture.filePath, prompt });
+    let response;
+    try {
+      response = await analyzeWithQwenVl({ imagePath: capture.filePath, prompt, config: providerConfig });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'Unknown AI request failure';
+      const displayReason = normalizeAiErrorMessage(reason, provider);
+      this.traceStore?.record('ai_request_failed', displayReason, {
+        questionId: input.questionId,
+        provider,
+        promptType,
+        reason
+      });
+      console.error('[vision-analysis] Qwen request failed', {
+        questionId: input.questionId,
+        provider,
+        reason: displayReason
+      });
+      throw error;
+    }
+    this.traceStore?.record('ai_response', `Received AI response for ${input.questionId}`, {
+      questionId: input.questionId,
+      provider,
+      promptType,
+      rawResponseJson: response.rawResponseJson,
+      content: response.content
+    });
 
     const parsed = normalizeVisionAnalysis(JSON.parse(response.content) as AnalysisResultShape, {
       questionId: input.questionId,
       captureId: capture.id,
       provider,
-      model: provider === 'openai' ? process.env.OPENAI_MODEL ?? 'gpt-4.1-mini' : process.env.QWEN_VL_MODEL ?? 'qwen-vl-max',
+      model: providerConfig.model,
       promptVersion: `${promptType}.v1`
     });
 

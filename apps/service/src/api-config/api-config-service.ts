@@ -1,66 +1,77 @@
 import { MISSING_AI_API_KEY_MESSAGE } from '../assist/ai-error-message.js';
 import { ApiConfigRepository } from './api-config-repository.js';
-import type {
-  ApiConfigSnapshot,
-  ApiProvider,
-  ApiProviderConfigInput,
-  ApiProviderConfigSnapshot
-} from './api-config-types.js';
+import type { ApiConfigSnapshot, QwenApiKeyRecord, QwenApiKeySnapshot, QwenRuntimeConfig } from './api-config-types.js';
 
-const providerLabel: Record<ApiProvider, string> = {
-  qwen_vl: 'Qwen VL',
-  openai: 'OpenAI'
-};
+const FIXED_QWEN_MODEL = 'qwen3-vl-flash-2026-01-22';
+const DEFAULT_QWEN_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
 
-const maskApiKey = (apiKey: string | null) => {
-  const value = apiKey?.trim() ?? '';
-  if (!value) {
-    return null;
-  }
+const maskApiKey = (apiKey: string) => `${apiKey.trim().slice(0, 8)}••••`;
 
-  return `${value.slice(0, 8)}••••`;
-};
+const toSnapshot = (record: QwenApiKeyRecord): QwenApiKeySnapshot => ({
+  id: record.id,
+  name: record.name,
+  apiKeyMasked: maskApiKey(record.apiKey),
+  isActive: record.isActive,
+  createdAt: record.createdAt,
+  updatedAt: record.updatedAt
+});
 
 export class ApiConfigService {
   constructor(private readonly repository: ApiConfigRepository) {}
 
   getSnapshot(): ApiConfigSnapshot {
-    const defaultVisionProvider =
-      (this.repository.getSchemaMeta('vision_default_provider')?.value as ApiProvider | undefined) ?? 'qwen_vl';
+    const keys = this.repository.listQwenKeys();
+    const activeKey = keys.find((key) => key.isActive) ?? null;
 
     return {
-      defaultVisionProvider,
-      providers: {
-        qwen_vl: this.buildProviderSnapshot('qwen_vl'),
-        openai: this.buildProviderSnapshot('openai')
-      }
+      model: FIXED_QWEN_MODEL,
+      hasActiveKey: Boolean(activeKey),
+      activeKeyId: activeKey?.id ?? null,
+      activeKeyName: activeKey?.name ?? null,
+      keys: keys.map(toSnapshot)
     };
   }
 
-  updateProviderConfig(provider: ApiProvider, input: ApiProviderConfigInput) {
-    this.repository.saveProviderConfig(provider, input);
+  addQwenKey(input: { name: string; apiKey: string }) {
+    this.repository.createQwenKey({
+      name: input.name.trim(),
+      apiKey: input.apiKey.trim()
+    });
+
     return this.getSnapshot();
   }
 
-  setDefaultVisionProvider(provider: ApiProvider) {
-    this.repository.setSchemaMeta('vision_default_provider', provider);
+  enableQwenKey(id: number) {
+    const target = this.repository.getQwenKey(id);
+    if (!target) {
+      throw new Error('Qwen API key not found');
+    }
+
+    this.repository.enableQwenKey(id);
     return this.getSnapshot();
   }
 
-  private buildProviderSnapshot(provider: ApiProvider): ApiProviderConfigSnapshot {
-    const config = this.repository.getProviderConfig(provider);
-    const hasApiKey = Boolean(config?.apiKey?.trim());
+  deleteQwenKey(id: number) {
+    const target = this.repository.getQwenKey(id);
+    if (!target) {
+      throw new Error('Qwen API key not found');
+    }
+
+    this.repository.deleteQwenKey(id);
+    return this.getSnapshot();
+  }
+
+  getActiveQwenRuntimeConfig(): QwenRuntimeConfig {
+    const activeKey = this.repository.getActiveQwenKey();
 
     return {
-      provider,
-      label: providerLabel[provider],
-      enabled: config?.enabled ?? true,
-      hasApiKey,
-      apiKeyMasked: maskApiKey(config?.apiKey ?? null),
-      baseUrl: config?.baseUrl ?? null,
-      model: config?.model ?? null,
-      source: config ? 'database' : 'unset',
-      lastError: config && config.enabled && !hasApiKey ? MISSING_AI_API_KEY_MESSAGE : null
+      apiKey: activeKey?.apiKey.trim() || null,
+      baseUrl: DEFAULT_QWEN_BASE_URL,
+      model: FIXED_QWEN_MODEL
     };
+  }
+
+  getMissingKeyMessage() {
+    return MISSING_AI_API_KEY_MESSAGE;
   }
 }
