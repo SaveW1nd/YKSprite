@@ -1,6 +1,69 @@
 import { describe, expect, it, vi } from 'vitest';
+vi.mock('../../apps/service/src/assist/question-image-download', () => ({
+  downloadQuestionImage: vi.fn()
+}));
+
+vi.mock('../../apps/service/src/assist/ocr-service', () => ({
+  extractOcrResult: vi.fn()
+}));
+
 import { AutoAnswerService } from '../../apps/service/src/auto-answer/auto-answer-service';
 import { AutoplayDebugTraceStore } from '../../apps/service/src/debug/autoplay-debug-trace';
+import { downloadQuestionImage } from '../../apps/service/src/assist/question-image-download';
+import { extractOcrResult } from '../../apps/service/src/assist/ocr-service';
+
+const createCollectService = () => {
+  const browserController = {
+    getStatus: vi.fn(() => ({
+      status: 'running',
+      engine: 'chromium',
+      headless: true,
+      mode: 'headless',
+      startedAt: '2026-04-20T00:00:00.000Z',
+      pageUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/20',
+      lastError: null
+    })),
+    navigate: vi.fn(),
+    readExerciseRuntimeState: vi.fn(),
+    readCurrentQuestionPresentationSlide: vi.fn(),
+    captureScreenshot: vi.fn()
+  };
+  const runtimeRepository = {
+    updateExerciseProcessingState: vi.fn(),
+    saveSnapshot: vi.fn(),
+    getCurrentQuestion: vi.fn(() => ({
+      id: 1,
+      questionId: 'exercise-20'
+    }))
+  };
+  const assistRepository = {
+    saveQuestionCapture: vi.fn(),
+    saveOcrResult: vi.fn()
+  };
+  const autoAnswerRepository = {
+    upsertAttempt: vi.fn(),
+    getAttempt: vi.fn(),
+    findLatestSuccessfulAttemptForProblem: vi.fn(() => null)
+  };
+  const service = new AutoAnswerService({
+    browserController: browserController as never,
+    runtimeRepository: runtimeRepository as never,
+    assistRepository: assistRepository as never,
+    autoAnswerRepository: autoAnswerRepository as never,
+    questionSolveService: {} as never,
+    automationStore: {
+      executeTask: vi.fn(async (_type: string, _summary: string, task: () => Promise<unknown>) => task())
+    } as never
+  });
+
+  return {
+    service,
+    browserController,
+    runtimeRepository,
+    assistRepository,
+    autoAnswerRepository
+  };
+};
 
 describe('AutoAnswerService', () => {
   it('records an ai_request_failed trace when solving throws an api error', async () => {
@@ -117,6 +180,104 @@ describe('AutoAnswerService', () => {
           })
         })
       ])
+    );
+  });
+
+  it('downloads the current question image from presentation fetch without using runtimeState.imageUrl', async () => {
+    const runtimeState = {
+      lessonId: 'lesson-1',
+      exerciseIndex: '20',
+      problemId: 'problem-20',
+      problemType: 1,
+      pageIndex: 20,
+      questionText: '第20题',
+      options: [],
+      imageUrl: 'https://example.com/runtime-should-not-be-used.jpg',
+      imageThumbnailUrl: null,
+      isComplete: false,
+      routePath: '/lesson/fullscreen/v3/lesson-1/exercise/20'
+    };
+    const { service, browserController, assistRepository } = createCollectService();
+    browserController.readCurrentQuestionPresentationSlide.mockResolvedValue({
+      lessonId: 'lesson-1',
+      exerciseIndex: '20',
+      pageIndex: 20,
+      problemId: 'problem-20',
+      problemType: 1,
+      imageUrl: 'https://example.com/presentation-20.jpg',
+      imageThumbnailUrl: 'https://example.com/presentation-20-thumb.jpg',
+      raw: {}
+    });
+    vi.mocked(downloadQuestionImage).mockResolvedValue({
+      filePath: '/tmp/presentation-20.jpg',
+      mimeType: 'image/jpeg',
+      width: null,
+      height: null,
+      sha256: 'hash-20'
+    });
+
+    const result = await (service as any).collectEntry(
+      { id: 'run-1', lessonId: 'lesson-1' },
+      'entry-20',
+      'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/20',
+      runtimeState
+    );
+
+    expect(result).not.toBeNull();
+    expect(browserController.readCurrentQuestionPresentationSlide).toHaveBeenCalledWith('lesson-1');
+    expect(downloadQuestionImage).toHaveBeenCalledWith('https://example.com/presentation-20.jpg');
+    expect(assistRepository.saveQuestionCapture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        questionRowId: 1,
+        sourceType: 'runtime_ppt',
+        filePath: '/tmp/presentation-20.jpg'
+      })
+    );
+    expect(browserController.captureScreenshot).not.toHaveBeenCalled();
+    expect(extractOcrResult).not.toHaveBeenCalled();
+  });
+
+  it('fails collect when the presentation slide has no image instead of falling back to screenshot', async () => {
+    const runtimeState = {
+      lessonId: 'lesson-1',
+      exerciseIndex: '20',
+      problemId: 'problem-20',
+      problemType: 1,
+      pageIndex: 20,
+      questionText: '第20题',
+      options: [],
+      imageUrl: null,
+      imageThumbnailUrl: null,
+      isComplete: false,
+      routePath: '/lesson/fullscreen/v3/lesson-1/exercise/20'
+    };
+    const { service, browserController, assistRepository, autoAnswerRepository } = createCollectService();
+    browserController.readCurrentQuestionPresentationSlide.mockResolvedValue({
+      lessonId: 'lesson-1',
+      exerciseIndex: '20',
+      pageIndex: 20,
+      problemId: 'problem-20',
+      problemType: 1,
+      imageUrl: null,
+      imageThumbnailUrl: null,
+      raw: {}
+    });
+
+    const result = await (service as any).collectEntry(
+      { id: 'run-1', lessonId: 'lesson-1' },
+      'entry-20',
+      'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/20',
+      runtimeState
+    );
+
+    expect(result).toBeNull();
+    expect(browserController.captureScreenshot).not.toHaveBeenCalled();
+    expect(assistRepository.saveOcrResult).not.toHaveBeenCalled();
+    expect(autoAnswerRepository.upsertAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        collectStatus: 'failed',
+        lastError: 'No presentation slide image available for entry-20'
+      })
     );
   });
 });

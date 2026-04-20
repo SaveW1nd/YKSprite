@@ -1,4 +1,3 @@
-import { extractOcrResult } from '../assist/ocr-service.js';
 import { downloadQuestionImage } from '../assist/question-image-download.js';
 import { normalizeAiErrorMessage } from '../assist/ai-error-message.js';
 import type { AutomationStore } from '../automation/automation-store.js';
@@ -524,52 +523,23 @@ export class AutoAnswerService {
         if (!currentQuestion) {
           throw new Error(`No current question detected for ${entryId}`);
         }
-        let hasSavedCapture = false;
-        const pptImageUrl =
-          runtimeState.imageUrl ??
-          (run.lessonId ? (await this.browserController.readCurrentQuestionPresentationSlide?.(run.lessonId))?.imageUrl ?? null : null);
-        if (pptImageUrl) {
-          try {
-            const downloaded = await downloadQuestionImage(pptImageUrl);
-            this.assistRepository.saveQuestionCapture({
-              questionRowId: currentQuestion.id,
-              sourceType: 'runtime_ppt',
-              filePath: downloaded.filePath,
-              mimeType: downloaded.mimeType,
-              width: downloaded.width,
-              height: downloaded.height,
-              sha256: downloaded.sha256
-            });
-            hasSavedCapture = true;
-          } catch {
-            // Fall back to screenshot capture when PPT image download fails.
-          }
+        const presentationSlide = run.lessonId
+          ? (await this.browserController.readCurrentQuestionPresentationSlide?.(run.lessonId)) ?? null
+          : null;
+        const presentationImageUrl = presentationSlide?.imageUrl ?? null;
+        if (!presentationImageUrl) {
+          throw new Error(`No presentation slide image available for ${entryId}`);
         }
-
-        if (!hasSavedCapture) {
-          const screenshot = await this.browserController.captureScreenshot();
-          const ocr = extractOcrResult(
-            {
-              currentUrl: exerciseUrl ?? this.browserController.getStatus().pageUrl,
-              pageTitle: null,
-              html: null,
-              text: runtimeState.questionText || null
-            },
-            screenshot
-          );
-          this.assistRepository.saveOcrResult(currentQuestion.id, ocr);
-          if (ocr.savedImagePath) {
-            this.assistRepository.saveQuestionCapture({
-              questionRowId: currentQuestion.id,
-              sourceType: 'runtime_question',
-              filePath: ocr.savedImagePath,
-              mimeType: screenshot?.mimeType ?? 'image/png',
-              width: null,
-              height: null,
-              sha256: null
-            });
-          }
-        }
+        const downloaded = await downloadQuestionImage(presentationImageUrl);
+        this.assistRepository.saveQuestionCapture({
+          questionRowId: currentQuestion.id,
+          sourceType: 'runtime_ppt',
+          filePath: downloaded.filePath,
+          mimeType: downloaded.mimeType,
+          width: downloaded.width,
+          height: downloaded.height,
+          sha256: downloaded.sha256
+        });
 
         const attempt: AutoAnswerAttemptRecord = {
           id: `attempt-${run.id}-${entryId}`,

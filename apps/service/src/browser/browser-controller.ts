@@ -122,6 +122,8 @@ export type DetectedQuestionEvent = {
   isComplete: boolean;
   imageUrl: string | null;
   detectedAt: string;
+  pageIndex?: number | null;
+  source?: 'runtime-state' | 'curr-slide-event';
 };
 
 export type DetectedClassroomEvent = {

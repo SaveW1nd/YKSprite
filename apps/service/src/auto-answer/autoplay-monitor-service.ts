@@ -1,6 +1,5 @@
 import type { AutoAnswerService } from './auto-answer-service.js';
-import type { BrowserController, DetectedClassroomEvent, DetectedQuestionEvent, ExerciseEntry } from '../browser/browser-controller.js';
-import { buildDetectedQuestionEvent } from '../browser/question-runtime.js';
+import type { BrowserController, DetectedClassroomEvent, DetectedQuestionEvent } from '../browser/browser-controller.js';
 import { isRainClassroomHomePageUrl } from '../browser/rain-classroom-platforms.js';
 import { probeRuntimeStatus } from '../runtime/runtime-probe.js';
 
@@ -30,14 +29,6 @@ const createIdleStatus = (): AutoplayMonitorStatus => ({
 });
 
 const buildEventKey = (event: Pick<DetectedQuestionEvent, 'lessonId' | 'problemId'>) => `${event.lessonId}:${event.problemId}`;
-const PUSHED_QUESTION_CONFIRM_RETRY_COUNT = 5;
-const PUSHED_QUESTION_CONFIRM_RETRY_DELAY_MS = 100;
-
-const latestRuntimeStateFromEntries = (entries: ExerciseEntry[]) =>
-  [...entries]
-    .reverse()
-    .map((entry) => entry.runtimeState ?? null)
-    .find((runtimeState) => runtimeState && !runtimeState.isComplete) ?? null;
 
 const parseLessonIdFromUrl = (url: string | null) => url?.match(/\/lesson\/fullscreen\/v3\/([^/?#]+)/)?.[1] ?? null;
 
@@ -47,6 +38,7 @@ export class AutoplayMonitorService {
   private readonly intervalMs: number;
   private readonly onLog: ((message: string, type: string) => void | Promise<void>) | null;
   private readonly processedEventKeys = new Set<string>();
+  private readonly queuedQuestionEvents: DetectedQuestionEvent[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
   private ticking = false;
   private currentLessonId: string | null = null;
@@ -69,6 +61,7 @@ export class AutoplayMonitorService {
     }
 
     this.processedEventKeys.clear();
+    this.queuedQuestionEvents.length = 0;
     this.status = {
       enabled: true,
       lastStartedAt: new Date().toISOString(),
@@ -94,7 +87,6 @@ export class AutoplayMonitorService {
     await this.browserController.startQuestionDetection(async (event) => {
       await this.handleDetectedQuestion(event);
     });
-    await this.handleInitialQuestion();
     await this.tick();
     return this.getStatus();
   }
@@ -122,6 +114,7 @@ export class AutoplayMonitorService {
     this.ticking = false;
     this.currentLessonId = null;
     this.processedEventKeys.clear();
+    this.queuedQuestionEvents.length = 0;
     this.status = {
       ...this.status,
       enabled: false
@@ -137,12 +130,7 @@ export class AutoplayMonitorService {
     this.ticking = true;
     try {
       await this.ensureAutoplayContext();
-      if (!this.browserController.supportsPushedQuestionDetection?.()) {
-        const polledEvent = await this.readLatestDetectedQuestion().catch(() => null);
-        if (polledEvent) {
-          await this.handleDetectedQuestion(polledEvent);
-        }
-      }
+      await this.flushQueuedQuestionEvent();
       if (this.status.lastError) {
         this.status = {
           ...this.status,
@@ -245,15 +233,8 @@ export class AutoplayMonitorService {
     await this.onLog?.('课堂已结束，已返回首页', 'classroom_left');
   }
 
-  private async handleInitialQuestion() {
-    const initialEvent = await this.readLatestDetectedQuestion();
-    if (initialEvent) {
-      await this.handleDetectedQuestion(initialEvent);
-    }
-  }
-
   private async handleDetectedQuestion(event: DetectedQuestionEvent) {
-    if (!this.status.enabled) {
+    if (!this.status.enabled || event.isComplete) {
       return;
     }
 
@@ -272,16 +253,14 @@ export class AutoplayMonitorService {
     await this.onLog?.('检测到题目', 'question_detected');
 
     if (this.autoAnswerService.getStatus().status === 'running') {
-      return;
-    }
-
-    const confirmedEvent = await this.confirmDetectedQuestion(event);
-    if (!confirmedEvent) {
+      this.queueQuestionEvent(event);
       return;
     }
 
     this.processedEventKeys.add(eventKey);
-    const started = await this.autoAnswerService.start();
+    const started = await this.autoAnswerService.start({
+      preferredQuestion: event
+    });
     this.status = {
       ...this.status,
       lastTriggeredRunId: started.runId,
@@ -289,38 +268,52 @@ export class AutoplayMonitorService {
     };
   }
 
-  private async confirmDetectedQuestion(event: DetectedQuestionEvent) {
-    const eventKey = buildEventKey(event);
-
-    for (let attempt = 0; attempt < PUSHED_QUESTION_CONFIRM_RETRY_COUNT; attempt += 1) {
-      const confirmedEvent = await this.readLatestDetectedQuestion();
-      if (confirmedEvent && buildEventKey(confirmedEvent) === eventKey) {
-        return confirmedEvent;
-      }
-
-      if (attempt < PUSHED_QUESTION_CONFIRM_RETRY_COUNT - 1) {
-        await new Promise<void>((resolve) => {
-          setTimeout(resolve, PUSHED_QUESTION_CONFIRM_RETRY_DELAY_MS);
-        });
-      }
-    }
-
-    return null;
-  }
-
-  private async readLatestDetectedQuestion() {
-    const latestListedQuestion = latestRuntimeStateFromEntries(await this.browserController.listExerciseEntries().catch(() => []));
-    const currentRuntimeState = await this.browserController.readExerciseRuntimeState().catch(() => null);
-    return buildDetectedQuestionEvent(latestListedQuestion ?? currentRuntimeState);
-  }
-
   private resetMonitoringCycle() {
     this.processedEventKeys.clear();
+    this.queuedQuestionEvents.length = 0;
     this.status = {
       ...this.status,
       lastEventAt: null,
       lastEventKey: null,
       lastTriggeredRunId: null,
+      lastError: null
+    };
+  }
+
+  private queueQuestionEvent(event: DetectedQuestionEvent) {
+    const eventKey = buildEventKey(event);
+    if (
+      this.processedEventKeys.has(eventKey) ||
+      this.queuedQuestionEvents.some((queuedEvent) => buildEventKey(queuedEvent) === eventKey)
+    ) {
+      return;
+    }
+
+    this.queuedQuestionEvents.push(event);
+  }
+
+  private async flushQueuedQuestionEvent() {
+    if (this.autoAnswerService.getStatus().status === 'running' || this.queuedQuestionEvents.length === 0) {
+      return;
+    }
+
+    const queuedEvent = this.queuedQuestionEvents.shift();
+    if (!queuedEvent) {
+      return;
+    }
+
+    const eventKey = buildEventKey(queuedEvent);
+    if (this.processedEventKeys.has(eventKey)) {
+      return;
+    }
+
+    this.processedEventKeys.add(eventKey);
+    const started = await this.autoAnswerService.start({
+      preferredQuestion: queuedEvent
+    });
+    this.status = {
+      ...this.status,
+      lastTriggeredRunId: started.runId,
       lastError: null
     };
   }

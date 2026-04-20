@@ -180,26 +180,8 @@ describe('AutoplayMonitorService', () => {
     expect(onLog).toHaveBeenCalledWith('课堂已结束，已返回首页', 'classroom_left');
   });
 
-  it('retries a pushed question until the classroom runtime state becomes readable', async () => {
-    vi.useFakeTimers();
+  it('starts auto-answer from a curr-slide push event without re-confirming through list polling', async () => {
     let onQuestionEvent: ((event: any) => Promise<void>) | null = null;
-    let runtimeReady = false;
-    const runtimeState = {
-      lessonId: 'lesson-1',
-      exerciseIndex: '8',
-      problemId: 'problem-8',
-      problemType: 1,
-      pageIndex: 8,
-      questionText: '第 8 题',
-      options: [
-        { key: 'A', value: 'A' },
-        { key: 'B', value: 'B' }
-      ],
-      imageUrl: 'https://example.com/problem-8.jpg',
-      imageThumbnailUrl: null,
-      isComplete: false,
-      routePath: '/lesson/fullscreen/v3/lesson-1/exercise/8'
-    };
     const browserController = {
       ...createBrowserController(
         vi.fn().mockResolvedValue([
@@ -241,28 +223,16 @@ describe('AutoplayMonitorService', () => {
       startQuestionDetection: vi.fn(async (handler: (event: any) => Promise<void>) => {
         onQuestionEvent = handler;
       }),
-      listExerciseEntries: vi.fn(async () =>
-        runtimeReady
-          ? [
-              {
-                entryId: 'current-exercise-8',
-                lessonId: 'lesson-1',
-                status: 'unanswered' as const,
-                isActive: true,
-                pageHint: '第8页',
-                remainingHint: null,
-                thumbnailUrl: null,
-                exerciseUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/8',
-                runtimeState
-              }
-            ]
-          : []
-      ),
-      readExerciseRuntimeState: vi.fn(async () => (runtimeReady ? runtimeState : null))
+      listExerciseEntries: vi.fn(async () => {
+        throw new Error('list polling should not run for pushed question confirmation');
+      }),
+      readExerciseRuntimeState: vi.fn(async () => {
+        throw new Error('runtime polling should not run for pushed question confirmation');
+      })
     } as unknown as BrowserController;
     const autoAnswerService = {
       getStatus: vi.fn(() => ({ status: 'idle' })),
-      start: vi.fn(async () => ({ runId: 'run-1' }))
+      start: vi.fn(async () => ({ runId: 'run-push-only' }))
     };
     const onLog = vi.fn();
     const service = new AutoplayMonitorService({
@@ -273,27 +243,88 @@ describe('AutoplayMonitorService', () => {
     });
 
     await service.start();
-
-    setTimeout(() => {
-      runtimeReady = true;
-    }, 100);
-
-    const pending = onQuestionEvent?.({
+    await onQuestionEvent?.({
       lessonId: 'lesson-1',
-      problemId: 'problem-8',
-      problemType: 1,
-      exerciseIndex: '8',
-      routePath: '/lesson/fullscreen/v3/lesson-1/exercise/8',
+      problemId: 'problem-20',
+      problemType: 2,
+      exerciseIndex: null,
+      routePath: '/lesson/fullscreen/v3/lesson-1/subjective/18',
       isComplete: false,
-      imageUrl: 'https://example.com/problem-8.jpg',
-      detectedAt: '2026-04-20T06:00:00.000Z'
+      imageUrl: null,
+      detectedAt: '2026-04-20T06:00:00.000Z',
+      pageIndex: 20,
+      source: 'curr-slide-event'
     });
 
-    await vi.advanceTimersByTimeAsync(200);
-    await pending;
-
     expect(onLog).toHaveBeenCalledWith('检测到题目', 'question_detected');
+    expect(autoAnswerService.start).toHaveBeenCalledWith({
+      preferredQuestion: expect.objectContaining({
+        lessonId: 'lesson-1',
+        problemId: 'problem-20',
+        source: 'curr-slide-event'
+      })
+    });
     expect(autoAnswerService.start).toHaveBeenCalledTimes(1);
-    expect(service.getStatus().lastTriggeredRunId).toBe('run-1');
+    expect(service.getStatus().lastTriggeredRunId).toBe('run-push-only');
+  });
+
+  it('queues a later pushed question while a previous auto-answer run is still active', async () => {
+    vi.useFakeTimers();
+    let onQuestionEvent: ((event: any) => Promise<void>) | null = null;
+    let autoAnswerStatus: 'running' | 'idle' = 'running';
+    const browserController = {
+      ...createBrowserController(
+        vi.fn().mockResolvedValue([
+          {
+            id: 'lesson-1',
+            classroomId: 'classroom-1',
+            courseTitle: '高等数学',
+            lessonTitle: '第一讲',
+            lessonState: 'in_class',
+            href: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1'
+          }
+        ])
+      ),
+      startQuestionDetection: vi.fn(async (handler: (event: any) => Promise<void>) => {
+        onQuestionEvent = handler;
+      })
+    } as unknown as BrowserController;
+    const autoAnswerService = {
+      getStatus: vi.fn(() => ({ status: autoAnswerStatus })),
+      start: vi.fn(async () => ({ runId: 'run-queued' }))
+    };
+    const service = new AutoplayMonitorService({
+      autoAnswerService: autoAnswerService as any,
+      browserController,
+      intervalMs: 100
+    });
+
+    await service.start();
+    await onQuestionEvent?.({
+      lessonId: 'lesson-1',
+      problemId: 'problem-21',
+      problemType: 1,
+      exerciseIndex: null,
+      routePath: '/lesson/fullscreen/v3/lesson-1/subjective/18',
+      isComplete: false,
+      imageUrl: null,
+      detectedAt: '2026-04-20T06:01:00.000Z',
+      pageIndex: 21,
+      source: 'curr-slide-event'
+    });
+
+    expect(autoAnswerService.start).not.toHaveBeenCalled();
+
+    autoAnswerStatus = 'idle';
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(autoAnswerService.start).toHaveBeenCalledWith({
+      preferredQuestion: expect.objectContaining({
+        lessonId: 'lesson-1',
+        problemId: 'problem-21',
+        pageIndex: 21
+      })
+    });
+    expect(autoAnswerService.start).toHaveBeenCalledTimes(1);
   });
 });
