@@ -1111,99 +1111,72 @@ describe('BrowserManager', () => {
         lessonId: 'lesson-1',
         problemId: 'problem-13',
         problemType: 1,
-        routePath: '/v3/lesson-1/exercise/13'
+        routePath: '/v3/lesson-1/exercise/13',
+        source: 'runtime-state'
       })
     );
   });
 
-  it('emits a pushed question event when the lesson socket receives unlockproblem', async () => {
+  it('emits a pushed question from currSlide.event when the route is still on an older subjective page', async () => {
     const runtime = createRuntime();
-    runtime.page.url.mockReturnValue('https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1');
+    runtime.page.url.mockReturnValue('https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/subjective/18');
     runtime.page.evaluate.mockImplementation(async (fn: (...args: any[]) => unknown, ...args: unknown[]) => fn(...args));
     document.body.innerHTML = '<div id="app"></div>';
-    window.history.replaceState({}, '', '/lesson/fullscreen/v3/lesson-1');
+    window.history.replaceState({}, '', '/lesson/fullscreen/v3/lesson-1/subjective/18');
     const app = document.querySelector('#app') as { __vue__?: any };
-    const problemMap = new Map();
     app.__vue__ = {
       $route: {
-        name: 'lesson',
-        params: { lessonID: 'lesson-1' },
-        path: '/lesson/fullscreen/v3/lesson-1'
+        name: 'subjective',
+        params: { lessonID: 'lesson-1', index: '18' },
+        path: '/lesson/fullscreen/v3/lesson-1/subjective/18'
       },
       $store: {
         state: {
+          slideIndex: 18,
+          currSlide: {
+            pageIndex: 20,
+            problemID: 'problem-20',
+            problemType: 2,
+            isComplete: false,
+            event: {
+              type: 'problem',
+              prob: 'problem-20',
+              sid: 'problem-20',
+              si: 20,
+              pres: 'presentation-1'
+            }
+          },
           cards: []
         }
       },
-      $children: [{ problemMap }],
-      $watch: () => () => undefined
+      $children: [{ problemMap: new Map() }],
+      $watch: (source: () => unknown, callback: () => void, options?: { immediate?: boolean }) => {
+        source();
+        if (options?.immediate) {
+          callback();
+        }
+        return () => undefined;
+      }
     };
-    const socket = new EventTarget() as EventTarget & {
-      url?: string;
-      readyState?: number;
-    };
-    socket.url = 'wss://www.yuketang.cn/wsapp/';
-    socket.readyState = 1;
-    (window as typeof window & { socket?: EventTarget }).socket = socket;
     const manager = new BrowserManager({ launchBrowser: runtime.launch });
     const onEvent = vi.fn();
 
     await manager.start();
     await manager.startQuestionDetection(onEvent);
-    onEvent.mockClear();
-
-    problemMap.set('problem-88', {
-      problem: {
-        problemType: 1,
-        body: '88 题题干',
-        options: [
-          { key: 'A', value: 'A' },
-          { key: 'B', value: 'B' }
-        ]
-      },
-      cover: 'https://example.com/problem-88.jpg',
-      thumbnail: 'https://example.com/problem-88-thumb.jpg'
-    });
-    app.__vue__.$store.state.cards = [
-      {
-        problemID: 'problem-88',
-        problemType: 1,
-        isComplete: false,
-        pageIndex: 88,
-        body: '88 题题干',
-        options: [
-          { key: 'A', value: 'A' },
-          { key: 'B', value: 'B' }
-        ]
-      }
-    ];
-
-    socket.dispatchEvent(
-      new MessageEvent('message', {
-        data: JSON.stringify({
-          op: 'unlockproblem',
-          lessonid: 'lesson-1',
-          problem: {
-            prob: 'problem-88',
-            sid: 'problem-88',
-            si: 88,
-            pres: 'presentation-1'
-          }
-        })
-      })
-    );
-    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(onEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         lessonId: 'lesson-1',
-        problemId: 'problem-88',
-        problemType: 1
+        problemId: 'problem-20',
+        problemType: 2,
+        routePath: '/lesson/fullscreen/v3/lesson-1/subjective/18',
+        pageIndex: 20,
+        source: 'curr-slide-event'
       })
     );
   });
 
-  it('emits the latest unresolved lesson card when detection starts on the lesson root page', async () => {
+  it('emits the current slide problem when detection starts on the lesson root page', async () => {
     const runtime = createRuntime();
     let currentUrl = 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1';
     runtime.page.url.mockImplementation(() => currentUrl);
@@ -1239,27 +1212,20 @@ describe('BrowserManager', () => {
       },
       $store: {
         state: {
-          cards: [
-            {
-              problemID: 'problem-14',
-              problemType: 1,
-              isComplete: true,
-              pageIndex: 14,
-              body: '14 题题干',
-              options: []
-            },
-            {
-              problemID: 'problem-15',
-              problemType: 1,
-              isComplete: false,
-              pageIndex: 15,
-              body: '15 题题干',
-              options: [
-                { key: 'A', value: 'A' },
-                { key: 'B', value: 'B' }
-              ]
+          currSlide: {
+            pageIndex: 15,
+            problemID: 'problem-15',
+            problemType: 1,
+            isComplete: false,
+            event: {
+              type: 'problem',
+              prob: 'problem-15',
+              sid: 'problem-15',
+              si: 15,
+              pres: 'presentation-1'
             }
-          ]
+          },
+          cards: []
         }
       },
       $children: [{ problemMap }],
@@ -1286,9 +1252,51 @@ describe('BrowserManager', () => {
         lessonId: 'lesson-1',
         problemId: 'problem-15',
         problemType: 1,
-        routePath: expect.stringContaining('/lesson/fullscreen/v3/lesson-1/exercise/')
+        routePath: '/lesson/fullscreen/v3/lesson-1',
+        pageIndex: 15,
+        source: 'curr-slide-event'
       })
     );
+  });
+
+  it('does not emit when currSlide.event is not a problem event', async () => {
+    const runtime = createRuntime();
+    runtime.page.url.mockReturnValue('https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1');
+    runtime.page.evaluate.mockImplementation(async (fn: (...args: any[]) => unknown, ...args: unknown[]) => fn(...args));
+    document.body.innerHTML = '<div id="app"></div>';
+    window.history.replaceState({}, '', '/lesson/fullscreen/v3/lesson-1');
+    const app = document.querySelector('#app') as { __vue__?: any };
+    app.__vue__ = {
+      $route: {
+        name: 'lesson',
+        params: { lessonID: 'lesson-1' },
+        path: '/lesson/fullscreen/v3/lesson-1'
+      },
+      $store: {
+        state: {
+          currSlide: {
+            pageIndex: 21,
+            problemID: null,
+            problemType: null,
+            isComplete: false,
+            event: {
+              type: 'slide',
+              si: 21
+            }
+          },
+          cards: []
+        }
+      },
+      $children: [{ problemMap: new Map() }],
+      $watch: () => () => undefined
+    };
+    const manager = new BrowserManager({ launchBrowser: runtime.launch });
+    const onEvent = vi.fn();
+
+    await manager.start();
+    await manager.startQuestionDetection(onEvent);
+
+    expect(onEvent).not.toHaveBeenCalled();
   });
 
   it('reads the latest unresolved lesson card when the page stays on the lesson root route', async () => {

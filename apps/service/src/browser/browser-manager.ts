@@ -119,8 +119,6 @@ const installQuestionDetector = (input: { questionBindingName: string; lessonBin
       unwatch: (() => void) | null;
       routeListenersInstalled: boolean;
       networkHooksInstalled: boolean;
-      socketTarget: EventTarget | null;
-      socketMessageHandler: ((event: MessageEvent) => void) | null;
       onRouteChange?: () => void;
       onDomReady?: () => void;
       onLoad?: () => void;
@@ -137,7 +135,6 @@ const installQuestionDetector = (input: { questionBindingName: string; lessonBin
     __ykspriteQuestionRoutePatched?: boolean;
     __ykspriteQuestionFetchPatched?: boolean;
     __ykspriteQuestionXhrPatched?: boolean;
-    socket?: EventTarget | null;
   };
 
   const isExerciseRoute = () => /\/(exercise|subjective)\//.test(location.href);
@@ -251,57 +248,62 @@ const installQuestionDetector = (input: { questionBindingName: string; lessonBin
     );
   };
 
-  const readLatestPendingRuntimeState = (): ExerciseRuntimeState | null => {
+  const readCurrentSlideRuntimeState = (): ExerciseRuntimeState | null => {
     const context = readVueLessonContext();
     if (!context) {
       return null;
     }
 
-    const candidates = context.cards
-      .map((card: any, index: number) => {
-        if (card?.isComplete) {
-          return null;
-        }
-
-        const problemType = Number(context.root?.problemMap?.get?.(card?.problemID)?.problem?.problemType ?? card?.problemType ?? 0);
-        const isSubjective = problemType === 5;
-        return buildRuntimeStateFromCard(
-          context,
-          card,
-          String(index),
-          `/lesson/fullscreen/v3/${context.lessonId}/${isSubjective ? 'subjective' : 'exercise'}/${index}`,
-          index
-        );
-      })
-      .filter((card: ExerciseRuntimeState | null): card is ExerciseRuntimeState => Boolean(card));
-
-    return candidates[candidates.length - 1] ?? null;
-  };
-
-  const readLatestRuntimeState = () => {
-    return readRuntimeState() ?? readLatestPendingRuntimeState();
-  };
-
-  const buildEvent = (runtimeState: ExerciseRuntimeState | null): DetectedQuestionEvent | null => {
-    if (
-      !runtimeState?.lessonId ||
-      !runtimeState.problemId ||
-      !runtimeState.problemType ||
-      runtimeState.isComplete
-    ) {
+    const currSlide = context.vue.$store.state?.currSlide ?? null;
+    const slideEvent = currSlide?.event ?? null;
+    if (slideEvent?.type !== 'problem') {
       return null;
     }
 
+    const problemId =
+      (typeof slideEvent?.prob === 'string' && slideEvent.prob.trim() ? slideEvent.prob.trim() : null) ??
+      (typeof slideEvent?.sid === 'string' && slideEvent.sid.trim() ? slideEvent.sid.trim() : null) ??
+      (typeof currSlide?.problemID === 'string' && currSlide.problemID.trim() ? currSlide.problemID.trim() : null) ??
+      null;
+    if (!context.lessonId || !problemId) {
+      return null;
+    }
+
+    const problem = context.root.problemMap?.get?.(problemId)?.problem;
+    const problemType = Number(problem?.problemType ?? currSlide?.problemType ?? 0);
+    if (!problemType) {
+      return null;
+    }
+
+    const pageIndex =
+      typeof currSlide?.pageIndex === 'number' && Number.isFinite(currSlide.pageIndex)
+        ? currSlide.pageIndex
+        : typeof slideEvent?.si === 'number' && Number.isFinite(slideEvent.si)
+          ? slideEvent.si
+          : null;
+
     return {
-      lessonId: runtimeState.lessonId,
-      problemId: runtimeState.problemId,
-      problemType: runtimeState.problemType,
-      exerciseIndex: runtimeState.exerciseIndex ?? null,
-      routePath: runtimeState.routePath ?? null,
-      isComplete: runtimeState.isComplete,
-      imageUrl: runtimeState.imageUrl ?? null,
-      detectedAt: new Date().toISOString()
-    };
+      lessonId: context.lessonId,
+      exerciseIndex:
+        (typeof currSlide?.exerciseIndex === 'string' && currSlide.exerciseIndex.trim() ? currSlide.exerciseIndex.trim() : null) ??
+        (pageIndex !== null ? String(pageIndex) : null),
+      problemId,
+      problemType,
+      pageIndex,
+      questionText: String(problem?.body ?? currSlide?.body ?? '').trim(),
+      options: normalizeOptionListInPage(problem?.options ?? currSlide?.options ?? []),
+      imageUrl: currSlide?.cover ?? currSlide?.src ?? context.root.problemMap?.get?.(problemId)?.cover ?? null,
+      imageThumbnailUrl: currSlide?.thumbnail ?? context.root.problemMap?.get?.(problemId)?.thumbnail ?? null,
+      isComplete: Boolean(currSlide?.isComplete ?? false),
+      routePath: context.route?.path ?? null
+    } satisfies ExerciseRuntimeState;
+  };
+
+  const buildEvent = (runtimeState: ExerciseRuntimeState | null): DetectedQuestionEvent | null => {
+    return buildDetectedQuestionEvent(runtimeState, {
+      source: 'curr-slide-event',
+      pageIndex: runtimeState?.pageIndex ?? null
+    });
   };
 
   const selectActiveLessonFromApiPayload = (payload: {
@@ -428,42 +430,6 @@ const installQuestionDetector = (input: { questionBindingName: string; lessonBin
     detector.networkHooksInstalled = true;
   };
 
-  const installSocketHooks = () => {
-    const detector = pageWindow.__ykspriteQuestionDetector;
-    const socket = pageWindow.socket;
-    if (!detector || !socket || typeof socket.addEventListener !== 'function') {
-      return;
-    }
-
-    if (detector.socketTarget === socket && detector.socketMessageHandler) {
-      return;
-    }
-
-    if (detector.socketTarget && detector.socketMessageHandler) {
-      detector.socketTarget.removeEventListener('message', detector.socketMessageHandler as EventListener);
-    }
-
-    detector.socketTarget = socket;
-    detector.socketMessageHandler = (event: MessageEvent) => {
-      let payload: { op?: string } | null = null;
-      try {
-        payload = typeof event.data === 'string' ? JSON.parse(event.data) : null;
-      } catch {
-        payload = null;
-      }
-
-      if (!payload?.op || !['unlockproblem', 'slidenav', 'showpresentation', 'presentationupdated'].includes(payload.op)) {
-        return;
-      }
-
-      setTimeout(() => {
-        attachVueWatch();
-        reportCurrentQuestion();
-      }, 0);
-    };
-    socket.addEventListener('message', detector.socketMessageHandler as EventListener);
-  };
-
   const detectLessonEndedIfNeeded = async () => {
     const detector = pageWindow.__ykspriteQuestionDetector;
     if (!detector?.enabled || !isLessonRoute() || isHomeRoute()) {
@@ -504,7 +470,7 @@ const installQuestionDetector = (input: { questionBindingName: string; lessonBin
       return;
     }
 
-    const event = buildEvent(readLatestRuntimeState());
+    const event = buildEvent(readCurrentSlideRuntimeState() ?? readRuntimeState());
     if (!event) {
       return;
     }
@@ -536,15 +502,16 @@ const installQuestionDetector = (input: { questionBindingName: string; lessonBin
     detector.unwatch = vue.$watch(
       () => {
         const route = vue.$route;
-        const latestCard = readLatestRuntimeState();
+        const currentSlide = readCurrentSlideRuntimeState();
         return JSON.stringify({
           routeName: route?.name ?? null,
           routePath: route?.path ?? null,
-          lessonId: latestCard?.lessonId ?? route?.params?.lessonID ?? null,
-          exerciseIndex: latestCard?.exerciseIndex ?? route?.params?.index ?? null,
-          problemId: latestCard?.problemId ?? null,
-          problemType: latestCard?.problemType ?? 0,
-          isComplete: latestCard?.isComplete ?? false
+          lessonId: currentSlide?.lessonId ?? route?.params?.lessonID ?? null,
+          exerciseIndex: currentSlide?.exerciseIndex ?? route?.params?.index ?? null,
+          problemId: currentSlide?.problemId ?? null,
+          problemType: currentSlide?.problemType ?? 0,
+          pageIndex: currentSlide?.pageIndex ?? null,
+          isComplete: currentSlide?.isComplete ?? false
         });
       },
       () => {
@@ -565,7 +532,6 @@ const installQuestionDetector = (input: { questionBindingName: string; lessonBin
         return;
       }
       void detectAndOpenActiveLesson();
-      installSocketHooks();
       attachVueWatch();
       reportCurrentQuestion();
     };
@@ -612,7 +578,6 @@ const installQuestionDetector = (input: { questionBindingName: string; lessonBin
     detector.observer = new MutationObserver(() => {
       void detectLessonEndedIfNeeded();
       void detectAndOpenActiveLesson();
-      installSocketHooks();
       attachVueWatch();
       reportCurrentQuestion();
     });
@@ -644,35 +609,22 @@ const installQuestionDetector = (input: { questionBindingName: string; lessonBin
     unwatch: null,
     routeListenersInstalled: false,
     networkHooksInstalled: false,
-    socketTarget: null,
-    socketMessageHandler: null,
     disable() {
       this.enabled = false;
       this.observer?.disconnect();
       this.observer = null;
       this.unwatch?.();
       this.unwatch = null;
-      if (this.socketTarget && this.socketMessageHandler) {
-        this.socketTarget.removeEventListener('message', this.socketMessageHandler as EventListener);
-      }
-      this.socketTarget = null;
-      this.socketMessageHandler = null;
     },
     enable(nextQuestionBindingName: string, nextLessonBindingName: string) {
       this.unwatch?.();
       this.unwatch = null;
       this.lastEventKey = null;
-      if (this.socketTarget && this.socketMessageHandler) {
-        this.socketTarget.removeEventListener('message', this.socketMessageHandler as EventListener);
-      }
-      this.socketTarget = null;
-      this.socketMessageHandler = null;
       this.questionBindingName = nextQuestionBindingName;
       this.lessonBindingName = nextLessonBindingName;
       this.enabled = true;
       installRouteHooks();
       installNetworkHooks();
-      installSocketHooks();
       ensureObserver();
       void detectLessonEndedIfNeeded();
       void detectAndOpenActiveLesson();

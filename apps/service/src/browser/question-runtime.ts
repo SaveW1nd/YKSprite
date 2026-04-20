@@ -13,7 +13,13 @@ export const parseLessonTarget = (url: string) => {
   };
 };
 
-export const buildDetectedQuestionEvent = (runtimeState: ExerciseRuntimeState | null): DetectedQuestionEvent | null => {
+export const buildDetectedQuestionEvent = (
+  runtimeState: ExerciseRuntimeState | null,
+  input?: {
+    source?: 'runtime-state' | 'curr-slide-event';
+    pageIndex?: number | null;
+  }
+): DetectedQuestionEvent | null => {
   if (
     !runtimeState?.lessonId ||
     !runtimeState.problemId ||
@@ -31,7 +37,9 @@ export const buildDetectedQuestionEvent = (runtimeState: ExerciseRuntimeState | 
     routePath: runtimeState.routePath ?? null,
     isComplete: runtimeState.isComplete,
     imageUrl: runtimeState.imageUrl ?? null,
-    detectedAt: new Date().toISOString()
+    detectedAt: new Date().toISOString(),
+    pageIndex: input?.pageIndex ?? runtimeState.pageIndex ?? null,
+    source: input?.source ?? 'runtime-state'
   };
 };
 
