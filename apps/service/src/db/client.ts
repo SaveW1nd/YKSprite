@@ -5,7 +5,7 @@ import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { sessionsTable } from './schema.js';
 import { eq, sql } from 'drizzle-orm';
-import type { Cookie } from 'playwright';
+import type { BrowserCookie } from '../browser/browser-controller.js';
 
 type DatabaseClientOptions = {
   databasePath?: string;
@@ -33,6 +33,15 @@ const applyMigrations = (sqlite: Database.Database) => {
     CREATE TABLE IF NOT EXISTS schema_meta (
       key TEXT PRIMARY KEY NOT NULL,
       value TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS api_provider_configs (
+      provider TEXT PRIMARY KEY NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      api_key TEXT,
+      base_url TEXT,
+      model TEXT,
+      updated_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS sessions (
@@ -211,7 +220,47 @@ const applyMigrations = (sqlite: Database.Database) => {
       confirmed_at TEXT NOT NULL,
       note TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS accounts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT,
+      name TEXT,
+      monitoring_enabled INTEGER NOT NULL DEFAULT 1,
+      account_key TEXT NOT NULL,
+      platform TEXT NOT NULL,
+      status TEXT NOT NULL,
+      last_checked_at TEXT,
+      last_error_reason TEXT,
+      note TEXT,
+      cookies_json TEXT,
+      cookie_count INTEGER,
+      session_saved_at TEXT,
+      origin TEXT,
+      current_url TEXT,
+      page_title TEXT,
+      mode TEXT,
+      created_at TEXT NOT NULL
+    );
   `);
+
+  const ensureColumn = (name: string, definition: string) => {
+    try {
+      sqlite.exec(`ALTER TABLE accounts ADD COLUMN ${name} ${definition};`);
+    } catch {
+      // Column already exists in upgraded databases.
+    }
+  };
+
+  ensureColumn('user_id', 'TEXT');
+  ensureColumn('name', 'TEXT');
+  ensureColumn('monitoring_enabled', 'INTEGER NOT NULL DEFAULT 1');
+  ensureColumn('cookies_json', 'TEXT');
+  ensureColumn('cookie_count', 'INTEGER');
+  ensureColumn('session_saved_at', 'TEXT');
+  ensureColumn('origin', 'TEXT');
+  ensureColumn('current_url', 'TEXT');
+  ensureColumn('page_title', 'TEXT');
+  ensureColumn('mode', 'TEXT');
 };
 
 const importLegacySession = (
@@ -225,7 +274,7 @@ const importLegacySession = (
   }
 
   const raw = readFileSync(legacySessionPath, 'utf8');
-  const parsed = JSON.parse(raw) as { cookies: Cookie[]; savedAt?: string; origin?: string };
+  const parsed = JSON.parse(raw) as { cookies: BrowserCookie[]; savedAt?: string; origin?: string };
   if (!Array.isArray(parsed.cookies) || parsed.cookies.length === 0) {
     return;
   }

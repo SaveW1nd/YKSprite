@@ -5,6 +5,15 @@ export const schemaMetaTable = sqliteTable('schema_meta', {
   value: text('value').notNull()
 });
 
+export const apiProviderConfigsTable = sqliteTable('api_provider_configs', {
+  provider: text('provider').primaryKey(),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  apiKey: text('api_key'),
+  baseUrl: text('base_url'),
+  model: text('model'),
+  updatedAt: text('updated_at').notNull()
+});
+
 export const sessionsTable = sqliteTable('sessions', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   source: text('source').notNull(),
@@ -180,4 +189,25 @@ export const answerConfirmationsTable = sqliteTable('answer_confirmations', {
   confirmedValue: text('confirmed_value').notNull(),
   confirmedAt: text('confirmed_at').notNull(),
   note: text('note')
+});
+
+export const accountsTable = sqliteTable('accounts', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: text('user_id'),
+  name: text('name'),
+  monitoringEnabled: integer('monitoring_enabled', { mode: 'boolean' }).notNull().default(true),
+  accountKey: text('account_key').notNull(),
+  platform: text('platform').notNull(),
+  status: text('status').notNull(),
+  lastCheckedAt: text('last_checked_at'),
+  lastErrorReason: text('last_error_reason'),
+  note: text('note'),
+  cookiesJson: text('cookies_json'),
+  cookieCount: integer('cookie_count'),
+  sessionSavedAt: text('session_saved_at'),
+  origin: text('origin'),
+  currentUrl: text('current_url'),
+  pageTitle: text('page_title'),
+  mode: text('mode'),
+  createdAt: text('created_at').notNull()
 });

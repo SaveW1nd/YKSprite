@@ -1,5 +1,15 @@
 import { existsSync, readFileSync } from 'node:fs';
 
+const BLOCKED_ENV_KEYS = new Set([
+  'VISION_DEFAULT_PROVIDER',
+  'QWEN_VL_API_KEY',
+  'QWEN_VL_BASE_URL',
+  'QWEN_VL_MODEL',
+  'OPENAI_API_KEY',
+  'OPENAI_BASE_URL',
+  'OPENAI_MODEL'
+]);
+
 export const loadEnvFile = (envPath: string) => {
   if (!existsSync(envPath)) {
     return;
@@ -20,7 +30,7 @@ export const loadEnvFile = (envPath: string) => {
     const key = line.slice(0, separatorIndex).trim();
     const value = line.slice(separatorIndex + 1).trim().replace(/^['"]|['"]$/g, '');
 
-    if (!key || process.env[key] !== undefined) {
+    if (!key || process.env[key] !== undefined || BLOCKED_ENV_KEYS.has(key)) {
       continue;
     }
 
