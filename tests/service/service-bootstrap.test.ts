@@ -185,12 +185,20 @@ describe('service bootstrap', () => {
       await app.bootstrapSavedSessionAutomation();
 
       const browserResponse = await app.inject({ method: 'GET', url: '/browser' });
+      const autoplayStatusResponse = await app.inject({ method: 'GET', url: '/autoplay/status' });
+      const autoplayStartResponse = await app.inject({ method: 'POST', url: '/autoplay/start' });
+      const autoplayMonitorStatusResponse = await app.inject({ method: 'GET', url: '/autoplay/monitor/status' });
+      const autoplayMonitorStartResponse = await app.inject({ method: 'POST', url: '/autoplay/monitor/start' });
 
       expect(controller.startSpy).not.toHaveBeenCalled();
       expect(accountWorkerController.controller.startSpy).toHaveBeenCalledTimes(1);
       expect(isQuestionDetectionEnabled()).toBe(false);
       expect(accountWorkerController.isQuestionDetectionEnabled()).toBe(true);
       expect(browserResponse.statusCode).toBe(404);
+      expect(autoplayStatusResponse.statusCode).toBe(404);
+      expect(autoplayStartResponse.statusCode).toBe(404);
+      expect(autoplayMonitorStatusResponse.statusCode).toBe(404);
+      expect(autoplayMonitorStartResponse.statusCode).toBe(404);
     } finally {
       await app.close();
       databaseClient.close();
@@ -215,10 +223,14 @@ describe('service bootstrap', () => {
       await app.bootstrapSavedSessionAutomation();
 
       const browserResponse = await app.inject({ method: 'GET', url: '/browser' });
+      const autoplayStatusResponse = await app.inject({ method: 'GET', url: '/autoplay/status' });
+      const autoplayMonitorStatusResponse = await app.inject({ method: 'GET', url: '/autoplay/monitor/status' });
 
       expect(controller.startSpy).not.toHaveBeenCalled();
       expect(isQuestionDetectionEnabled()).toBe(false);
       expect(browserResponse.statusCode).toBe(404);
+      expect(autoplayStatusResponse.statusCode).toBe(404);
+      expect(autoplayMonitorStatusResponse.statusCode).toBe(404);
     } finally {
       await app.close();
     }

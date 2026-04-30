@@ -16,8 +16,9 @@ export const parseLessonTarget = (url: string) => {
 export const buildDetectedQuestionEvent = (
   runtimeState: ExerciseRuntimeState | null,
   input?: {
-    source?: 'runtime-state' | 'curr-slide-event';
+    source?: 'runtime-state' | 'curr-slide-event' | 'presentation-slide' | 'wsapp-unlockproblem';
     pageIndex?: number | null;
+    presentationId?: string | null;
   }
 ): DetectedQuestionEvent | null => {
   if (
@@ -38,6 +39,7 @@ export const buildDetectedQuestionEvent = (
     isComplete: runtimeState.isComplete,
     imageUrl: runtimeState.imageUrl ?? null,
     detectedAt: new Date().toISOString(),
+    presentationId: input?.presentationId ?? null,
     pageIndex: input?.pageIndex ?? runtimeState.pageIndex ?? null,
     source: input?.source ?? 'runtime-state'
   };
@@ -120,9 +122,20 @@ export const buildRuntimeStateFromPresentationSlide = (
   fallbackPageIndex = 0
 ): ExerciseRuntimeState | null => {
   const raw = slide.raw && typeof slide.raw === 'object' ? (slide.raw as Record<string, unknown>) : {};
+  const problem = raw.problem && typeof raw.problem === 'object' ? (raw.problem as Record<string, unknown>) : {};
   const exerciseIndex = slide.exerciseIndex ?? (slide.pageIndex !== null ? String(slide.pageIndex) : null);
-  const problemId = slide.problemId ?? parseOptionalString(raw.problemID) ?? parseOptionalString(raw.problemId);
-  const problemType = slide.problemType ?? parseOptionalNumber(raw.problemType) ?? parseOptionalNumber(raw.type) ?? null;
+  const problemId =
+    slide.problemId ??
+    parseOptionalString(problem.problemId) ??
+    parseOptionalString(problem.problemID) ??
+    parseOptionalString(raw.problemID) ??
+    parseOptionalString(raw.problemId);
+  const problemType =
+    slide.problemType ??
+    parseOptionalNumber(problem.problemType) ??
+    parseOptionalNumber(raw.problemType) ??
+    parseOptionalNumber(raw.type) ??
+    null;
   if (!exerciseIndex || !problemId || !problemType) {
     return null;
   }
@@ -135,20 +148,26 @@ export const buildRuntimeStateFromPresentationSlide = (
     problemType,
     pageIndex: slide.pageIndex ?? parseOptionalNumber(raw.page) ?? parseOptionalNumber(raw.index) ?? fallbackPageIndex,
     questionText:
+      parseOptionalString(problem.body) ??
       parseOptionalString(raw.questionText) ??
       parseOptionalString(raw.body) ??
       parseOptionalString(raw.title) ??
       parseOptionalString(raw.stem) ??
       '',
-    options: normalizeOptionList(raw.options ?? raw.optionList ?? raw.choices),
+    options: normalizeOptionList(problem.options ?? raw.options ?? raw.optionList ?? raw.choices),
     imageUrl: slide.imageUrl ?? slide.imageThumbnailUrl ?? null,
     imageThumbnailUrl: slide.imageThumbnailUrl ?? slide.imageUrl ?? null,
     isComplete: Boolean(
-      parseOptionalBoolean(raw.isComplete) ??
+      parseOptionalBoolean(problem.isComplete) ??
+        parseOptionalBoolean(problem.completed) ??
+        parseOptionalBoolean(problem.finished) ??
+        parseOptionalBoolean(raw.isComplete) ??
         parseOptionalBoolean(raw.completed) ??
         parseOptionalBoolean(raw.finished) ??
         /answered|done|finished|completed|已完成/i.test(
-          parseOptionalString(raw.status) ??
+          parseOptionalString(problem.status) ??
+            parseOptionalString(problem.answerStatus) ??
+            parseOptionalString(raw.status) ??
             parseOptionalString(raw.answerStatus) ??
             parseOptionalString(raw.state) ??
             ''

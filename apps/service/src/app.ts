@@ -1,8 +1,6 @@
 import Fastify from 'fastify';
 import { AccountRepository } from './db/account-repository.js';
 import { AutoAnswerRepository } from './auto-answer/auto-answer-repository.js';
-import { AutoAnswerService } from './auto-answer/auto-answer-service.js';
-import { AutoplayMonitorService } from './auto-answer/autoplay-monitor-service.js';
 import { QuestionSolveService } from './auto-answer/question-solve-service.js';
 import type { BrowserController } from './browser/browser-controller.js';
 import { AutomationStore } from './automation/automation-store.js';
@@ -19,8 +17,6 @@ import { registerAccountRoutes } from './routes/accounts.js';
 import { registerApiConfigRoutes } from './routes/api-config.js';
 import { registerAutomationRoutes } from './routes/automation.js';
 import { registerAutoplayDebugTraceRoutes } from './routes/autoplay-debug-trace.js';
-import { registerAutoplayRoutes } from './routes/autoplay.js';
-import { registerAutoplayMonitorRoutes } from './routes/autoplay-monitor.js';
 import { registerHealthRoute } from './routes/health.js';
 import { registerRuntimeRoutes } from './routes/runtime.js';
 import { VisionAnalysisService, type VisionAnalysisServiceLike } from './assist/vision-analysis-service.js';
@@ -104,20 +100,6 @@ export const buildServiceApp = (options: BuildServiceAppOptions = {}) => {
   const accountLoginController =
     options.accountLoginController ??
     defaultBrowserManager;
-  const autoAnswerService = new AutoAnswerService({
-    browserController,
-    runtimeRepository,
-    assistRepository,
-    autoAnswerRepository,
-    questionSolveService,
-    automationStore,
-    traceStore: debugTraceStore
-  });
-  const autoplayMonitorService = new AutoplayMonitorService({
-    autoAnswerService,
-    browserController
-  });
-
   registerHealthRoute(app);
   registerAccountRoutes(app, accountRepository, accountMonitorManager, accountLoginController, accountEventHub);
   registerApiConfigRoutes(app, apiConfigService);
@@ -125,8 +107,6 @@ export const buildServiceApp = (options: BuildServiceAppOptions = {}) => {
   registerAssistRoutes(app, browserController, automationStore, runtimeRepository, assistRepository, visionAnalysisService);
   registerAutomationRoutes(app, automationStore);
   registerAutoplayDebugTraceRoutes(app, debugTraceStore);
-  registerAutoplayRoutes(app, autoAnswerService);
-  registerAutoplayMonitorRoutes(app, autoplayMonitorService);
 
   const serviceApp = Object.assign(app, {
     async bootstrapSavedSessionAutomation() {
@@ -136,7 +116,6 @@ export const buildServiceApp = (options: BuildServiceAppOptions = {}) => {
 
   serviceApp.addHook('onClose', async () => {
     await accountMonitorManager.stopAll();
-    await autoplayMonitorService.stop();
     await accountLoginController.stop().catch(() => undefined);
     databaseClient.close();
   });

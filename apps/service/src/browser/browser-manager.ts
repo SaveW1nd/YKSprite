@@ -2,6 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { chromium } from 'playwright';
 import type { Browser, BrowserContext, Page, Request } from 'playwright';
+import WebSocket from 'ws';
 import { AccountRepository } from '../db/account-repository.js';
 import type { AccountIdentity } from '../db/account-repository.js';
 import type {
@@ -28,6 +29,7 @@ import {
   buildDetectedQuestionEvent,
   buildRuntimeStateFromPresentationSlide,
   parseLessonTarget,
+  parseOptionalNumber,
   parseOptionalString
 } from './question-runtime.js';
 import {
@@ -58,9 +60,11 @@ type BrowserManagerOptions = {
   launchBrowser?: LaunchBrowser;
   sessionStore?: Pick<SessionStore, 'load' | 'save'>;
   accountRepository?: AccountRepository;
+  accountId?: number;
   traceStore?: AutoplayDebugTraceStore;
   activeLessonEnterDelayMs?: number;
   onAccountSessionSaved?: (accountId: number) => void | Promise<void>;
+  createQuestionWebSocket?: CreateQuestionWebSocket;
 };
 
 const createIdleStatus = (): BrowserStatus => ({
@@ -102,6 +106,18 @@ type DetectedLessonEndedEvent = {
   currentUrl: string;
 };
 
+type QuestionDetectionSignal = {
+  lessonId: string | null;
+  problemId: string | null;
+  presentationId: string | null;
+  pageIndex: number | null;
+  currentUrl: string;
+  trigger: 'wsapp-unlockproblem';
+};
+
+type QuestionWebSocket = Pick<WebSocket, 'on' | 'send' | 'close'>;
+type CreateQuestionWebSocket = (url: string, options: { headers: Record<string, string> }) => QuestionWebSocket;
+
 const MAX_NETWORK_EVENTS = 100;
 const MAX_NETWORK_BODY_PREVIEW = 2000;
 
@@ -112,13 +128,13 @@ const installQuestionDetector = (input: { questionBindingName: string; lessonBin
       questionBindingName: string;
       lessonBindingName: string;
       enabled: boolean;
-      lastEventKey: string | null;
       lastLessonKey: string | null;
       lastEndedLessonKey: string | null;
       observer: MutationObserver | null;
-      unwatch: (() => void) | null;
       routeListenersInstalled: boolean;
       networkHooksInstalled: boolean;
+      wsSocket: EventTarget | null;
+      wsMessageHandler: ((event: MessageEvent) => void) | null;
       onRouteChange?: () => void;
       onDomReady?: () => void;
       onLoad?: () => void;
@@ -129,8 +145,7 @@ const installQuestionDetector = (input: { questionBindingName: string; lessonBin
       detectAndOpenActiveLesson: () => Promise<boolean>;
       detectLessonEndedIfNeeded: () => Promise<boolean>;
       installNetworkHooks: () => void;
-      reportCurrentQuestion: () => void;
-      attachVueWatch: () => void;
+      installSocketHooks: () => void;
     };
     __ykspriteQuestionRoutePatched?: boolean;
     __ykspriteQuestionFetchPatched?: boolean;
@@ -141,37 +156,6 @@ const installQuestionDetector = (input: { questionBindingName: string; lessonBin
   const isLessonRoute = () => /\/lesson\/fullscreen\/v3\//.test(location.href);
   const isLessonRootRoute = () => /\/lesson\/fullscreen\/v3\/[^/?#]+$/.test(location.href);
   const isHomeRoute = () => /\/v2\/web\/index/.test(location.href);
-  const normalizeOptionListInPage = (value: unknown) => {
-    if (!Array.isArray(value)) {
-      return [];
-    }
-
-    return value
-      .map((option) => {
-        if (typeof option === 'string') {
-          const text = option.trim();
-          return text ? { key: text, value: text } : null;
-        }
-
-        if (option && typeof option === 'object') {
-          const record = option as Record<string, unknown>;
-          const key =
-            (typeof record.key === 'string' && record.key.trim() ? record.key.trim() : null) ??
-            (typeof record.label === 'string' && record.label.trim() ? record.label.trim() : null) ??
-            '';
-          const resolvedValue =
-            (typeof record.value === 'string' && record.value.trim() ? record.value.trim() : null) ??
-            (typeof record.label === 'string' && record.label.trim() ? record.label.trim() : null) ??
-            (typeof record.text === 'string' && record.text.trim() ? record.text.trim() : null) ??
-            (typeof record.key === 'string' && record.key.trim() ? record.key.trim() : null) ??
-            '';
-          return key || resolvedValue ? { key, value: resolvedValue } : null;
-        }
-
-        return null;
-      })
-      .filter((option): option is { key: string; value: string } => Boolean(option));
-  };
 
   const readVueLessonContext = () => {
     const app = document.querySelector('#app') as { __vue__?: any } | null;
@@ -185,125 +169,12 @@ const installQuestionDetector = (input: { questionBindingName: string; lessonBin
       route?.params?.lessonID ??
       location.pathname.match(/\/lesson\/fullscreen\/v3\/([^/?#]+)/)?.[1] ??
       null;
-    const root = vue.$children?.[0] ?? vue;
-    const cards = vue.$store.state?.cards ?? [];
 
     return {
-      vue,
       route,
-      lessonId,
-      root,
-      cards
+      lessonId
     };
   };
-
-  const buildRuntimeStateFromCard = (
-    context: NonNullable<ReturnType<typeof readVueLessonContext>>,
-    targetCard: any,
-    exerciseIndex: string | null,
-    routePath: string | null,
-    pageIndexFallback: number | null = null
-  ): ExerciseRuntimeState | null => {
-    const problemId = targetCard?.problemID || context.vue.$store.state?.currSlide?.problemID || null;
-    if (!context.lessonId || !problemId) {
-      return null;
-    }
-
-    const problem = context.root.problemMap?.get?.(problemId)?.problem;
-    const problemType = Number(problem?.problemType ?? targetCard?.problemType ?? 0);
-    if (!problemType) {
-      return null;
-    }
-
-    return {
-      lessonId: context.lessonId,
-      exerciseIndex,
-      problemId,
-      problemType,
-      pageIndex: targetCard?.pageIndex ?? pageIndexFallback,
-      questionText: String(problem?.body ?? targetCard?.body ?? '').trim(),
-      options: normalizeOptionListInPage(problem?.options ?? targetCard?.options ?? []),
-      imageUrl: targetCard?.cover ?? targetCard?.src ?? context.root.problemMap?.get?.(problemId)?.cover ?? null,
-      imageThumbnailUrl: targetCard?.thumbnail ?? context.root.problemMap?.get?.(problemId)?.thumbnail ?? null,
-      isComplete: Boolean(targetCard?.isComplete ?? false),
-      routePath
-    } satisfies ExerciseRuntimeState;
-  };
-
-  const readRuntimeState = (): ExerciseRuntimeState | null => {
-    const context = readVueLessonContext();
-    if (!context) {
-      return null;
-    }
-
-    if (!context.route || !['exercise', 'subjective'].includes(context.route.name)) {
-      return null;
-    }
-
-    return buildRuntimeStateFromCard(
-      context,
-      context.cards[Number(context.route.params?.index ?? -1)],
-      context.route.params?.index ?? null,
-      context.route.path ?? null
-    );
-  };
-
-  const readCurrentSlideRuntimeState = (): ExerciseRuntimeState | null => {
-    const context = readVueLessonContext();
-    if (!context) {
-      return null;
-    }
-
-    const currSlide = context.vue.$store.state?.currSlide ?? null;
-    const slideEvent = currSlide?.event ?? null;
-    if (slideEvent?.type !== 'problem') {
-      return null;
-    }
-
-    const problemId =
-      (typeof slideEvent?.prob === 'string' && slideEvent.prob.trim() ? slideEvent.prob.trim() : null) ??
-      (typeof slideEvent?.sid === 'string' && slideEvent.sid.trim() ? slideEvent.sid.trim() : null) ??
-      (typeof currSlide?.problemID === 'string' && currSlide.problemID.trim() ? currSlide.problemID.trim() : null) ??
-      null;
-    if (!context.lessonId || !problemId) {
-      return null;
-    }
-
-    const problem = context.root.problemMap?.get?.(problemId)?.problem;
-    const problemType = Number(problem?.problemType ?? currSlide?.problemType ?? 0);
-    if (!problemType) {
-      return null;
-    }
-
-    const pageIndex =
-      typeof currSlide?.pageIndex === 'number' && Number.isFinite(currSlide.pageIndex)
-        ? currSlide.pageIndex
-        : typeof slideEvent?.si === 'number' && Number.isFinite(slideEvent.si)
-          ? slideEvent.si
-          : null;
-
-    return {
-      lessonId: context.lessonId,
-      exerciseIndex:
-        (typeof currSlide?.exerciseIndex === 'string' && currSlide.exerciseIndex.trim() ? currSlide.exerciseIndex.trim() : null) ??
-        (pageIndex !== null ? String(pageIndex) : null),
-      problemId,
-      problemType,
-      pageIndex,
-      questionText: String(problem?.body ?? currSlide?.body ?? '').trim(),
-      options: normalizeOptionListInPage(problem?.options ?? currSlide?.options ?? []),
-      imageUrl: currSlide?.cover ?? currSlide?.src ?? context.root.problemMap?.get?.(problemId)?.cover ?? null,
-      imageThumbnailUrl: currSlide?.thumbnail ?? context.root.problemMap?.get?.(problemId)?.thumbnail ?? null,
-      isComplete: Boolean(currSlide?.isComplete ?? false),
-      routePath: context.route?.path ?? null
-    } satisfies ExerciseRuntimeState;
-  };
-
-  const buildEvent = (runtimeState: ExerciseRuntimeState | null): DetectedQuestionEvent | null =>
-    buildDetectedQuestionEvent(runtimeState, {
-      source: 'curr-slide-event',
-      pageIndex: runtimeState?.pageIndex ?? null
-    });
 
   const selectActiveLessonFromApiPayload = (payload: {
     data?: {
@@ -429,6 +300,120 @@ const installQuestionDetector = (input: { questionBindingName: string; lessonBin
     detector.networkHooksInstalled = true;
   };
 
+  const parseOptionalString = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : null);
+
+  const parseOptionalNumber = (value: unknown) => {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    return null;
+  };
+
+  const emitUnlockedProblem = async (payload: {
+    lessonId: string | null;
+    problemId: string | null;
+    presentationId: string | null;
+    pageIndex: number | null;
+  }) => {
+    const detector = pageWindow.__ykspriteQuestionDetector;
+    if (!detector?.enabled || !payload.lessonId || !payload.problemId) {
+      return;
+    }
+
+    const reporter = (pageWindow as unknown as Record<string, unknown>)[detector.questionBindingName];
+    if (typeof reporter === 'function') {
+      await (reporter as (input: QuestionDetectionSignal) => Promise<void>)({
+        lessonId: payload.lessonId,
+        problemId: payload.problemId,
+        presentationId: payload.presentationId,
+        pageIndex: payload.pageIndex,
+        currentUrl: location.href,
+        trigger: 'wsapp-unlockproblem'
+      });
+    }
+  };
+
+  const resolveQuestionSocket = () => {
+    const app = document.querySelector('#app') as { __vue__?: any } | null;
+    const vue = app?.__vue__;
+    const root = vue?.$children?.[0] ?? vue ?? null;
+    const candidates = [root?.socket, vue?.socket, ((pageWindow as unknown) as Record<string, unknown>).socket];
+    return (
+      candidates.find(
+        (candidate) =>
+          candidate &&
+          typeof (candidate as EventTarget).addEventListener === 'function' &&
+          typeof (candidate as EventTarget).removeEventListener === 'function' &&
+          typeof (candidate as { url?: unknown }).url === 'string' &&
+          String((candidate as { url: string }).url).includes('/wsapp/')
+      ) ?? null
+    ) as EventTarget | null;
+  };
+
+  const installSocketHooks = () => {
+    const detector = pageWindow.__ykspriteQuestionDetector;
+    if (!detector?.enabled || !isLessonRoute()) {
+      return;
+    }
+
+    const socket = resolveQuestionSocket();
+    if (!socket) {
+      return;
+    }
+
+    if (detector.wsSocket === socket && detector.wsMessageHandler) {
+      return;
+    }
+
+    if (detector.wsSocket && detector.wsMessageHandler) {
+      detector.wsSocket.removeEventListener('message', detector.wsMessageHandler as EventListener);
+    }
+
+    const onMessage = (event: MessageEvent) => {
+      let payload: unknown;
+      try {
+        payload =
+          typeof event.data === 'string'
+            ? JSON.parse(event.data)
+            : event.data;
+      } catch {
+        return;
+      }
+
+      if (!payload || typeof payload !== 'object') {
+        return;
+      }
+
+      const record = payload as Record<string, unknown>;
+      if (record.op !== 'unlockproblem') {
+        return;
+      }
+
+      const problem = record.problem && typeof record.problem === 'object' ? (record.problem as Record<string, unknown>) : null;
+      const problemId = problem ? parseOptionalString(problem.prob) : null;
+      if (!problem || !problemId) {
+        return;
+      }
+
+      void emitUnlockedProblem({
+        lessonId: parseOptionalString(record.lessonid),
+        problemId,
+        presentationId: parseOptionalString(problem.pres),
+        pageIndex: parseOptionalNumber(problem.si)
+      });
+    };
+
+    socket.addEventListener('message', onMessage as EventListener);
+    detector.wsSocket = socket;
+    detector.wsMessageHandler = onMessage;
+  };
+
   const detectLessonEndedIfNeeded = async () => {
     const detector = pageWindow.__ykspriteQuestionDetector;
     if (!detector?.enabled || !isLessonRoute() || isHomeRoute()) {
@@ -463,63 +448,6 @@ const installQuestionDetector = (input: { questionBindingName: string; lessonBin
     return false;
   };
 
-  const reportCurrentQuestion = () => {
-    const detector = pageWindow.__ykspriteQuestionDetector;
-    if (!detector?.enabled) {
-      return;
-    }
-
-    const event = buildEvent(readCurrentSlideRuntimeState());
-    if (!event) {
-      return;
-    }
-
-    const eventKey = `${event.lessonId}:${event.problemId}`;
-    if (detector.lastEventKey === eventKey) {
-      return;
-    }
-
-    detector.lastEventKey = eventKey;
-    const reporter = (pageWindow as unknown as Record<string, unknown>)[detector.questionBindingName];
-    if (typeof reporter === 'function') {
-      void (reporter as (payload: DetectedQuestionEvent) => Promise<void>)(event);
-    }
-  };
-
-  const attachVueWatch = () => {
-    const detector = pageWindow.__ykspriteQuestionDetector;
-    if (!detector?.enabled || detector.unwatch) {
-      return;
-    }
-
-    const app = document.querySelector('#app') as { __vue__?: any } | null;
-    const vue = app?.__vue__;
-    if (!vue?.$watch) {
-      return;
-    }
-
-    detector.unwatch = vue.$watch(
-      () => {
-        const route = vue.$route;
-        const currentSlide = readCurrentSlideRuntimeState();
-        return JSON.stringify({
-          routeName: route?.name ?? null,
-          routePath: route?.path ?? null,
-          lessonId: currentSlide?.lessonId ?? route?.params?.lessonID ?? null,
-          exerciseIndex: currentSlide?.exerciseIndex ?? route?.params?.index ?? null,
-          problemId: currentSlide?.problemId ?? null,
-          problemType: currentSlide?.problemType ?? 0,
-          pageIndex: currentSlide?.pageIndex ?? null,
-          isComplete: currentSlide?.isComplete ?? false
-        });
-      },
-      () => {
-        reportCurrentQuestion();
-      },
-      { immediate: true }
-    );
-  };
-
   const installRouteHooks = () => {
     const detector = pageWindow.__ykspriteQuestionDetector;
     if (!detector || detector.routeListenersInstalled) {
@@ -531,8 +459,7 @@ const installQuestionDetector = (input: { questionBindingName: string; lessonBin
         return;
       }
       void detectAndOpenActiveLesson();
-      attachVueWatch();
-      reportCurrentQuestion();
+      installSocketHooks();
     };
 
     detector.onRouteChange = routeChange;
@@ -577,8 +504,7 @@ const installQuestionDetector = (input: { questionBindingName: string; lessonBin
     detector.observer = new MutationObserver(() => {
       void detectLessonEndedIfNeeded();
       void detectAndOpenActiveLesson();
-      attachVueWatch();
-      reportCurrentQuestion();
+      installSocketHooks();
     });
     const root = document.documentElement ?? document.body;
     if (root) {
@@ -601,40 +527,38 @@ const installQuestionDetector = (input: { questionBindingName: string; lessonBin
     questionBindingName,
     lessonBindingName,
     enabled: true,
-    lastEventKey: null,
     lastLessonKey: null,
     lastEndedLessonKey: null,
     observer: null,
-    unwatch: null,
     routeListenersInstalled: false,
     networkHooksInstalled: false,
+    wsSocket: null,
+    wsMessageHandler: null,
     disable() {
       this.enabled = false;
+      if (this.wsSocket && this.wsMessageHandler) {
+        this.wsSocket.removeEventListener('message', this.wsMessageHandler as EventListener);
+      }
+      this.wsSocket = null;
+      this.wsMessageHandler = null;
       this.observer?.disconnect();
       this.observer = null;
-      this.unwatch?.();
-      this.unwatch = null;
     },
     enable(nextQuestionBindingName: string, nextLessonBindingName: string) {
-      this.unwatch?.();
-      this.unwatch = null;
-      this.lastEventKey = null;
       this.questionBindingName = nextQuestionBindingName;
       this.lessonBindingName = nextLessonBindingName;
       this.enabled = true;
       installRouteHooks();
       installNetworkHooks();
       ensureObserver();
+      installSocketHooks();
       void detectLessonEndedIfNeeded();
       void detectAndOpenActiveLesson();
-      attachVueWatch();
-      reportCurrentQuestion();
     },
     detectAndOpenActiveLesson,
     detectLessonEndedIfNeeded,
     installNetworkHooks,
-    reportCurrentQuestion,
-    attachVueWatch
+    installSocketHooks
   };
 
   pageWindow.__ykspriteQuestionDetector.enable(questionBindingName, lessonBindingName);
@@ -644,9 +568,11 @@ export class BrowserManager implements BrowserController, AccountLoginController
   private readonly launchBrowser: LaunchBrowser;
   private readonly sessionStore: Pick<SessionStore, 'load' | 'save'>;
   private readonly accountRepository: AccountRepository | null;
+  private readonly accountId: number | null;
   private readonly traceStore: AutoplayDebugTraceStore | null;
   private readonly activeLessonEnterDelayMs: number;
   private readonly onAccountSessionSaved: ((accountId: number) => void | Promise<void>) | null;
+  private readonly createQuestionWebSocket: CreateQuestionWebSocket;
   private browser: Browser | null = null;
   private context: BrowserContext | null = null;
   private page: Page | null = null;
@@ -654,6 +580,7 @@ export class BrowserManager implements BrowserController, AccountLoginController
   private recentNetworkEvents: BrowserNetworkEvent[] = [];
   private questionDetectionEnabled = false;
   private onQuestionDetected: ((event: DetectedQuestionEvent) => void | Promise<void>) | null = null;
+  private lastDetectedQuestionKey: string | null = null;
   private questionBindingsInstalled = false;
   private questionInitScriptInstalled = false;
   private visibleLoginAutoSaveHandler: ((...args: unknown[]) => void) | null = null;
@@ -662,14 +589,20 @@ export class BrowserManager implements BrowserController, AccountLoginController
   private currentLoginPlatform: RainClassroomPlatform = getRainClassroomPlatform('rain-classroom');
   private pendingActiveLessonKey: string | null = null;
   private activeLessonEntryTimeout: ReturnType<typeof setTimeout> | null = null;
+  private backendQuestionSocket: QuestionWebSocket | null = null;
+  private backendQuestionSocketLessonId: string | null = null;
 
   constructor(options: BrowserManagerOptions = {}) {
     this.launchBrowser = options.launchBrowser ?? chromium.launch.bind(chromium);
     this.sessionStore = options.sessionStore ?? new SessionStore();
     this.accountRepository = options.accountRepository ?? null;
+    this.accountId = options.accountId ?? null;
     this.traceStore = options.traceStore ?? null;
     this.activeLessonEnterDelayMs = options.activeLessonEnterDelayMs ?? DEFAULT_ACTIVE_LESSON_ENTER_DELAY_MS;
     this.onAccountSessionSaved = options.onAccountSessionSaved ?? null;
+    this.createQuestionWebSocket =
+      options.createQuestionWebSocket ??
+      ((url, socketOptions) => new WebSocket(url, socketOptions));
   }
 
   getStatus(): BrowserStatus {
@@ -964,6 +897,7 @@ export class BrowserManager implements BrowserController, AccountLoginController
       return this.getStatus();
     }
 
+    this.stopBackendQuestionSocket();
     await this.page.goto(this.resolveCurrentPlatform().homeUrl);
     this.status = {
       ...this.status,
@@ -982,6 +916,10 @@ export class BrowserManager implements BrowserController, AccountLoginController
       ...this.status,
       pageUrl: this.page.url()
     };
+    const lessonId = parseLessonTarget(url).lessonId;
+    if (lessonId) {
+      await this.startBackendQuestionSocket(lessonId, url).catch(() => undefined);
+    }
     return this.getStatus();
   }
 
@@ -1076,21 +1014,57 @@ export class BrowserManager implements BrowserController, AccountLoginController
     });
   }
 
-  async listLessonPresentationSlides(lessonId: string) {
+  async listLessonPresentationSlides(lessonId: string, preferredPresentationId: string | null = null) {
     if (!this.page) {
       return [];
     }
 
-    return this.page.evaluate(async (activeLessonId) => {
-      const response = await fetch('/api/v3/lesson/presentation/fetch', {
-        method: 'POST',
+    const presentationId =
+      preferredPresentationId ??
+      (await this.page.evaluate((activeLessonId) => {
+        const app = document.querySelector('#app') as { __vue__?: any } | null;
+        const vue = app?.__vue__;
+        const routeLessonId =
+          vue?.$route?.params?.lessonID ??
+          location.pathname.match(/\/lesson\/fullscreen\/v3\/([^/?#]+)/)?.[1] ??
+          null;
+        if (!vue?.$store || routeLessonId !== activeLessonId) {
+          return null;
+        }
+
+        const root = vue.$children?.[0] ?? vue;
+        const currSlide = vue.$store.state?.currSlide ?? null;
+        return (
+          (typeof root?.presentationID === 'string' && root.presentationID.trim() ? root.presentationID.trim() : null) ??
+          (typeof root?.presentationId === 'string' && root.presentationId.trim() ? root.presentationId.trim() : null) ??
+          (typeof currSlide?.event?.pres === 'string' && currSlide.event.pres.trim() ? currSlide.event.pres.trim() : null) ??
+          null
+        );
+      }, lessonId).catch(() => null));
+
+    if (!presentationId) {
+      return [];
+    }
+
+    return this.page.evaluate(async ({ activeLessonId, activePresentationId }) => {
+      const pageWindow = window as typeof window & { Authorization?: string | null };
+      const authorization =
+        typeof pageWindow.Authorization === 'string' &&
+        pageWindow.Authorization.trim()
+          ? `Bearer ${pageWindow.Authorization.trim()}`
+          : null;
+      const headers: Record<string, string> = {
+        xtbz: 'ykt',
+        'x-client': 'h5',
+        accept: 'application/json, text/plain, */*'
+      };
+      if (authorization) {
+        headers.Authorization = authorization;
+      }
+
+      const response = await fetch(`/api/v3/lesson/presentation/fetch?presentation_id=${encodeURIComponent(activePresentationId)}`, {
         credentials: 'include',
-        headers: {
-          'content-type': 'application/json;charset=UTF-8'
-        },
-        body: JSON.stringify({
-          lessonId: activeLessonId
-        })
+        headers
       });
 
       if (!response.ok) {
@@ -1131,26 +1105,39 @@ export class BrowserManager implements BrowserController, AccountLoginController
         return typeof value === 'string' && value.trim() ? value.trim() : null;
       };
 
+      let questionOrder = 0;
+
       return items.map((item) => {
         const raw = item as Record<string, unknown>;
+        const problem = raw.problem && typeof raw.problem === 'object' ? (raw.problem as Record<string, unknown>) : {};
+        const topLevelProblemId = parseString(raw.problemId) ?? parseString(raw.problemID);
+        const nestedProblemId = parseString(problem.problemId) ?? parseString(problem.problemID);
+        const resolvedProblemId = nestedProblemId ?? topLevelProblemId ?? null;
+        const resolvedProblemType =
+          parseNumber(problem.problemType) ??
+          parseNumber(raw.problemType) ??
+          null;
+        const resolvedExerciseIndex =
+          topLevelProblemId || parseNumber(raw.problemType) !== null
+            ? (
+                parseString(raw.exerciseIndex) ??
+                parseString(raw.index) ??
+                (parseNumber(raw.pageIndex) !== null ? String(parseNumber(raw.pageIndex)) : null)
+              )
+            : resolvedProblemId
+              ? String(questionOrder++)
+              : null;
+
         return {
           lessonId: activeLessonId,
-          exerciseIndex:
-            parseString(raw.exerciseIndex) ??
-            parseString(raw.index) ??
-            (parseNumber(raw.pageIndex) !== null ? String(parseNumber(raw.pageIndex)) : null),
+          exerciseIndex: resolvedExerciseIndex,
           pageIndex:
             parseNumber(raw.pageIndex) ??
             parseNumber(raw.index) ??
             parseNumber(raw.page) ??
             null,
-          problemId:
-            parseString(raw.problemId) ??
-            parseString(raw.problemID) ??
-            null,
-          problemType:
-            parseNumber(raw.problemType) ??
-            null,
+          problemId: resolvedProblemId,
+          problemType: resolvedProblemType,
           imageUrl:
             parseString(raw.imageUrl) ??
             parseString(raw.cover) ??
@@ -1163,70 +1150,56 @@ export class BrowserManager implements BrowserController, AccountLoginController
           raw: item
         };
       });
-    }, lessonId);
+    }, { activeLessonId: lessonId, activePresentationId: presentationId });
   }
 
-  async readCurrentQuestionPresentationSlide(lessonId: string): Promise<LessonPresentationSlide> {
+  async readCurrentQuestionPresentationSlide(
+    lessonId: string,
+    input?: { problemId?: string | null; presentationId?: string | null }
+  ): Promise<LessonPresentationSlide> {
     if (!this.page) {
       return null;
     }
-    const slides = await this.listLessonPresentationSlides(lessonId);
-    const currentExerciseIndex = this.page.url().match(/\/lesson\/fullscreen\/v3\/[^/]+\/(?:exercise|subjective)\/([^/?#]+)/)?.[1] ?? null;
-    const latestSlide = [...slides].reverse().find((slide) => slide.problemId && slide.imageUrl) ?? null;
 
-    return (
-      slides.find((slide) => {
-        if (!currentExerciseIndex) {
-          return false;
-        }
-
-        return (
-          slide.exerciseIndex === currentExerciseIndex ||
-          String(slide.pageIndex ?? '') === currentExerciseIndex
-        );
-      }) ??
-      latestSlide ??
+    const targetProblemId =
+      input?.problemId ??
       (await this.page.evaluate((activeLessonId) => {
         const app = document.querySelector('#app') as { __vue__?: any } | null;
         const vue = app?.__vue__;
-        const currentSlide = vue?.$store?.state?.currSlide ?? null;
-        if (!currentSlide) {
+        const routeLessonId =
+          vue?.$route?.params?.lessonID ??
+          location.pathname.match(/\/lesson\/fullscreen\/v3\/([^/?#]+)/)?.[1] ??
+          null;
+        if (routeLessonId !== activeLessonId) {
           return null;
         }
 
-        return {
-          lessonId: vue?.$route?.params?.lessonID ?? activeLessonId,
-          exerciseIndex:
-            (typeof currentSlide.exerciseIndex === 'string' && currentSlide.exerciseIndex.trim() ? currentSlide.exerciseIndex.trim() : null) ??
-            (typeof currentSlide.index === 'string' && currentSlide.index.trim() ? currentSlide.index.trim() : null) ??
-            (typeof currentSlide.pageIndex === 'number'
-              ? String(currentSlide.pageIndex)
-              : typeof currentSlide.pageIndex === 'string' && currentSlide.pageIndex.trim()
-                ? currentSlide.pageIndex.trim()
-                : null),
-          pageIndex:
-            (typeof currentSlide.pageIndex === 'number' && Number.isFinite(currentSlide.pageIndex) ? currentSlide.pageIndex : null) ??
-            (typeof currentSlide.index === 'number' && Number.isFinite(currentSlide.index) ? currentSlide.index : null),
-          problemId:
-            (typeof currentSlide.problemId === 'string' && currentSlide.problemId.trim() ? currentSlide.problemId.trim() : null) ??
-            (typeof currentSlide.problemID === 'string' && currentSlide.problemID.trim() ? currentSlide.problemID.trim() : null),
-          problemType:
-            typeof currentSlide.problemType === 'number' && Number.isFinite(currentSlide.problemType)
-              ? currentSlide.problemType
-              : null,
-          imageUrl:
-            (typeof currentSlide.imageUrl === 'string' && currentSlide.imageUrl.trim() ? currentSlide.imageUrl.trim() : null) ??
-            (typeof currentSlide.cover === 'string' && currentSlide.cover.trim() ? currentSlide.cover.trim() : null) ??
-            (typeof currentSlide.src === 'string' && currentSlide.src.trim() ? currentSlide.src.trim() : null) ??
-            null,
-          imageThumbnailUrl:
-            (typeof currentSlide.imageThumbnailUrl === 'string' && currentSlide.imageThumbnailUrl.trim() ? currentSlide.imageThumbnailUrl.trim() : null) ??
-            (typeof currentSlide.thumbnail === 'string' && currentSlide.thumbnail.trim() ? currentSlide.thumbnail.trim() : null) ??
-            null,
-          raw: currentSlide
-        };
-      }, lessonId).catch(() => null)) ??
-      null
+        const currSlide = vue?.$store?.state?.currSlide ?? null;
+        const problemId =
+          (typeof currSlide?.problemID === 'string' && currSlide.problemID.trim() ? currSlide.problemID.trim() : null) ??
+          (typeof currSlide?.problemId === 'string' && currSlide.problemId.trim() ? currSlide.problemId.trim() : null) ??
+          (typeof currSlide?.event?.prob === 'string' && currSlide.event.prob.trim() ? currSlide.event.prob.trim() : null) ??
+          (typeof currSlide?.event?.problemId === 'string' && currSlide.event.problemId.trim() ? currSlide.event.problemId.trim() : null) ??
+          null;
+        return problemId;
+      }, lessonId).catch(() => null));
+
+    const slides = await this.listLessonPresentationSlides(lessonId, input?.presentationId ?? null);
+    if (targetProblemId) {
+      return slides.find((slide) => slide.problemId === targetProblemId) ?? null;
+    }
+
+    const currentExerciseIndex = this.page.url().match(/\/lesson\/fullscreen\/v3\/[^/]+\/(?:exercise|subjective)\/([^/?#]+)/)?.[1] ?? null;
+    if (!currentExerciseIndex) {
+      return null;
+    }
+
+    return (
+      slides.find(
+        (slide) =>
+          slide.exerciseIndex === currentExerciseIndex ||
+          String(slide.pageIndex ?? '') === currentExerciseIndex
+      ) ?? null
     );
   }
 
@@ -1458,6 +1431,7 @@ export class BrowserManager implements BrowserController, AccountLoginController
   async stopQuestionDetection(): Promise<void> {
     this.questionDetectionEnabled = false;
     this.onQuestionDetected = null;
+    this.lastDetectedQuestionKey = null;
     await this.disableCurrentPageQuestionDetector();
   }
 
@@ -1466,20 +1440,32 @@ export class BrowserManager implements BrowserController, AccountLoginController
       throw new Error('Browser page is not available');
     }
 
-    return this.page.evaluate(async (input) => {
+    const currentPageUrl = this.page.url();
+    return this.page.evaluate(async ({ input, pageUrl }: { input: LessonProblemSubmitPayload; pageUrl: string }) => {
       const csrftoken = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/)?.[1] ?? '';
+      const authorization = (window as typeof window & { Authorization?: unknown }).Authorization;
+      const authorizationHeader = typeof authorization === 'string' && authorization.trim() ? `Bearer ${authorization.trim()}` : null;
+      const referrerUrl = pageUrl || location.href;
+      const lessonUrlMatch = referrerUrl.match(/^(https?:\/\/[^/]+\/lesson\/fullscreen\/v3\/[^/?#]+)/);
       try {
+        const headers: Record<string, string> = {
+          accept: 'application/json, text/plain, */*',
+          'content-type': 'application/json;charset=UTF-8',
+          'x-csrftoken': csrftoken,
+          xtbz: 'ykt',
+          'xt-agent': 'web',
+          'x-client': 'h5',
+          'university-id': '0'
+        };
+        if (authorizationHeader) {
+          headers.Authorization = authorizationHeader;
+        }
+
         const response = await fetch('/api/v3/lesson/problem/answer', {
           method: 'POST',
           credentials: 'include',
-          headers: {
-            'content-type': 'application/json;charset=UTF-8',
-            'x-csrftoken': csrftoken,
-            xtbz: 'ykt',
-            'xt-agent': 'web',
-            'x-client': 'web',
-            'university-id': '0'
-          },
+          headers,
+          referrer: lessonUrlMatch?.[1] ?? referrerUrl,
           body: JSON.stringify(input)
         });
 
@@ -1527,7 +1513,7 @@ export class BrowserManager implements BrowserController, AccountLoginController
           }
         } satisfies LessonProblemSubmitResult;
       }
-    }, payload);
+    }, { input: payload, pageUrl: currentPageUrl });
   }
 
   private async disableCurrentPageQuestionDetector() {
@@ -1679,12 +1665,22 @@ export class BrowserManager implements BrowserController, AccountLoginController
     }
 
     if (!this.questionBindingsInstalled) {
-      await this.page.exposeBinding(QUESTION_DETECTION_BINDING, async (_source, payload: DetectedQuestionEvent) => {
+      await this.page.exposeBinding(QUESTION_DETECTION_BINDING, async (_source, payload: QuestionDetectionSignal) => {
         if (!this.questionDetectionEnabled || !this.onQuestionDetected) {
           return;
         }
 
-        await this.onQuestionDetected(payload);
+        if (!payload.lessonId || !payload.problemId) {
+          return;
+        }
+
+        await this.emitDetectedPresentationQuestion({
+          lessonId: payload.lessonId,
+          problemId: payload.problemId,
+          presentationId: payload.presentationId ?? null,
+          pageIndex: payload.pageIndex ?? null,
+          source: 'wsapp-unlockproblem'
+        });
       });
       await this.page.exposeBinding(ACTIVE_LESSON_DETECTION_BINDING, async (_source, payload: DetectedActiveLessonEvent) => {
         if (!this.questionDetectionEnabled || !payload.lessonHref || this.page?.url() === payload.lessonHref) {
@@ -1724,61 +1720,231 @@ export class BrowserManager implements BrowserController, AccountLoginController
       return;
     }
 
-    const event =
-      (await this.page
-        ?.evaluate(() => {
-          const app = document.querySelector('#app') as { __vue__?: any } | null;
-          const vue = app?.__vue__;
-          if (!vue?.$store) {
-            return null;
-          }
-
-          const route = vue.$route;
-          const lessonId =
-            route?.params?.lessonID ??
-            location.pathname.match(/\/lesson\/fullscreen\/v3\/([^/?#]+)/)?.[1] ??
-            null;
-          const root = vue.$children?.[0] ?? vue;
-          const currSlide = vue.$store.state?.currSlide ?? null;
-          const slideEvent = currSlide?.event ?? null;
-          if (!lessonId || slideEvent?.type !== 'problem') {
-            return null;
-          }
-
-          const problemId =
-            (typeof slideEvent?.prob === 'string' && slideEvent.prob.trim() ? slideEvent.prob.trim() : null) ??
-            (typeof slideEvent?.sid === 'string' && slideEvent.sid.trim() ? slideEvent.sid.trim() : null) ??
-            (typeof currSlide?.problemID === 'string' && currSlide.problemID.trim() ? currSlide.problemID.trim() : null) ??
-            null;
-          const problemType = Number(root?.problemMap?.get?.(problemId)?.problem?.problemType ?? currSlide?.problemType ?? 0);
-          if (!problemId || !problemType || Boolean(currSlide?.isComplete)) {
-            return null;
-          }
-
-          return {
-            lessonId,
-            problemId,
-            problemType,
-            exerciseIndex:
-              (typeof currSlide?.exerciseIndex === 'string' && currSlide.exerciseIndex.trim() ? currSlide.exerciseIndex.trim() : null) ??
-              (typeof currSlide?.pageIndex === 'number' && Number.isFinite(currSlide.pageIndex) ? String(currSlide.pageIndex) : null),
-            routePath: route?.path ?? null,
-            isComplete: Boolean(currSlide?.isComplete),
-            imageUrl: currSlide?.cover ?? currSlide?.src ?? root?.problemMap?.get?.(problemId)?.cover ?? null,
-            detectedAt: new Date().toISOString(),
-            pageIndex:
-              (typeof currSlide?.pageIndex === 'number' && Number.isFinite(currSlide.pageIndex) ? currSlide.pageIndex : null) ??
-              (typeof slideEvent?.si === 'number' && Number.isFinite(slideEvent.si) ? slideEvent.si : null),
-            source: 'curr-slide-event'
-          } satisfies DetectedQuestionEvent;
-        })
-        .catch(() => null)) ??
-      null;
-    if (!event) {
+    const lessonId = this.page ? parseLessonTarget(this.page.url()).lessonId : null;
+    if (!lessonId) {
       return;
     }
 
+    const slides = await this.listLessonPresentationSlides(lessonId);
+    const slide =
+      [...slides]
+        .reverse()
+        .find((item, index) => {
+          const runtimeState = buildRuntimeStateFromPresentationSlide(
+            lessonId,
+            item,
+            item.pageIndex ?? Math.max(slides.length - 1 - index, 0)
+          );
+          return Boolean(runtimeState && !runtimeState.isComplete);
+        }) ?? null;
+    const runtimeState = slide ? buildRuntimeStateFromPresentationSlide(lessonId, slide, slide.pageIndex ?? 0) : null;
+    const fallbackRuntimeState = runtimeState ?? (await this.readRuntimeStateForQuestion({ lessonId }));
+    const event = buildDetectedQuestionEvent(fallbackRuntimeState, {
+      source: runtimeState ? 'presentation-slide' : 'runtime-state',
+      pageIndex: fallbackRuntimeState?.pageIndex ?? null
+    });
+
+    await this.dispatchDetectedQuestionEvent(event);
+  }
+
+  private async emitDetectedPresentationQuestion(input: {
+    lessonId: string;
+    problemId: string;
+    presentationId?: string | null;
+    pageIndex?: number | null;
+    source: 'presentation-slide' | 'wsapp-unlockproblem';
+  }) {
+    const slide = await this.readCurrentQuestionPresentationSlide(input.lessonId, {
+      problemId: input.problemId,
+      presentationId: input.presentationId ?? null
+    });
+    const runtimeState =
+      (slide
+        ? buildRuntimeStateFromPresentationSlide(input.lessonId, slide, input.pageIndex ?? slide.pageIndex ?? 0)
+        : null) ??
+      (await this.readRuntimeStateForQuestion({
+        lessonId: input.lessonId,
+        problemId: input.problemId
+      }));
+    const event = buildDetectedQuestionEvent(runtimeState, {
+      source: input.source,
+      pageIndex: input.pageIndex ?? runtimeState?.pageIndex ?? null,
+      presentationId: input.presentationId ?? null
+    });
+
+    await this.dispatchDetectedQuestionEvent(event);
+  }
+
+  private async readRuntimeStateForQuestion(input: { lessonId: string; problemId?: string | null }) {
+    const runtimeState = await this.readExerciseRuntimeState().catch(() => null);
+    if (!runtimeState || runtimeState.lessonId !== input.lessonId) {
+      return null;
+    }
+
+    if (input.problemId && runtimeState.problemId !== input.problemId) {
+      return null;
+    }
+
+    return runtimeState;
+  }
+
+  private async dispatchDetectedQuestionEvent(event: DetectedQuestionEvent | null) {
+    if (!this.onQuestionDetected) {
+      return;
+    }
+
+    if (!event) {
+      this.lastDetectedQuestionKey = null;
+      return;
+    }
+
+    const eventKey = `${event.lessonId}:${event.problemId}`;
+    if (this.lastDetectedQuestionKey === eventKey) {
+      return;
+    }
+
+    this.lastDetectedQuestionKey = eventKey;
     await this.onQuestionDetected(event);
+  }
+
+  private buildCookieHeader(cookies: Awaited<ReturnType<BrowserContext['cookies']>>) {
+    return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ');
+  }
+
+  private getMonitorUserId() {
+    if (!this.accountRepository || this.accountId === null) {
+      return null;
+    }
+
+    return this.accountRepository.getById(this.accountId)?.userId ?? null;
+  }
+
+  private stopBackendQuestionSocket() {
+    this.backendQuestionSocket?.close();
+    this.backendQuestionSocket = null;
+    this.backendQuestionSocketLessonId = null;
+  }
+
+  private async startBackendQuestionSocket(lessonId: string, lessonHref: string) {
+    if (!this.questionDetectionEnabled || !this.onQuestionDetected || !this.context) {
+      return;
+    }
+
+    if (this.backendQuestionSocket && this.backendQuestionSocketLessonId === lessonId) {
+      return;
+    }
+
+    const userId = this.getMonitorUserId();
+    if (!userId) {
+      return;
+    }
+
+    const platform = resolveRainClassroomPlatformByUrl(lessonHref) ?? this.resolveCurrentPlatform();
+    const cookies = await this.context.cookies();
+    const cookieHeader = this.buildCookieHeader(cookies);
+    if (!cookieHeader) {
+      return;
+    }
+
+    const lessonUrl = `${platform.originUrl}/lesson/fullscreen/v3/${lessonId}`;
+    const response = await fetch(`${platform.originUrl}/api/v3/lesson/checkin`, {
+      method: 'POST',
+      headers: {
+        accept: 'application/json, text/plain, */*',
+        cookie: cookieHeader,
+        'content-type': 'application/json;charset=UTF-8',
+        referer: lessonUrl,
+        xtbz: 'ykt',
+        'x-client': 'h5'
+      },
+      body: JSON.stringify({ source: 5, lessonId })
+    });
+    const payload = (await response.json().catch(() => null)) as { data?: { lessonToken?: string } } | null;
+    const lessonToken = payload?.data?.lessonToken ?? null;
+    if (!response.ok || !lessonToken) {
+      this.traceStore?.record('question_ws_failed', '题目推送连接失败', {
+        lessonId,
+        status: response.status,
+        hasLessonToken: Boolean(lessonToken)
+      });
+      return;
+    }
+
+    this.stopBackendQuestionSocket();
+    const socket = this.createQuestionWebSocket(platform.wsUrl, {
+      headers: {
+        Cookie: cookieHeader,
+        Origin: platform.originUrl,
+        Referer: lessonUrl,
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Safari/537.36'
+      }
+    });
+    this.backendQuestionSocket = socket;
+    this.backendQuestionSocketLessonId = lessonId;
+
+    socket.on('open', () => {
+      socket.send(
+        JSON.stringify({
+          op: 'hello',
+          userid: userId,
+          role: 'student',
+          auth: lessonToken,
+          lessonid: lessonId
+        })
+      );
+    });
+
+    socket.on('message', (data: unknown) => {
+      void this.handleBackendQuestionSocketMessage(lessonId, data);
+    });
+
+    socket.on('close', () => {
+      if (this.backendQuestionSocket === socket) {
+        this.backendQuestionSocket = null;
+        this.backendQuestionSocketLessonId = null;
+      }
+    });
+
+    socket.on('error', (error: unknown) => {
+      this.traceStore?.record('question_ws_failed', '题目推送连接失败', {
+        lessonId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
+  }
+
+  private async handleBackendQuestionSocketMessage(currentLessonId: string, data: unknown) {
+    const raw = Buffer.isBuffer(data) ? data.toString() : typeof data === 'string' ? data : String(data);
+    let payload: unknown;
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      return;
+    }
+
+    if (!payload || typeof payload !== 'object') {
+      return;
+    }
+
+    const record = payload as Record<string, unknown>;
+    if (record.op !== 'unlockproblem') {
+      return;
+    }
+
+    const lessonId = parseOptionalString(record.lessonid) ?? currentLessonId;
+    const problem = record.problem && typeof record.problem === 'object' ? (record.problem as Record<string, unknown>) : null;
+    const problemId = problem ? parseOptionalString(problem.prob) : null;
+    if (!lessonId || !problemId) {
+      return;
+    }
+
+    await this.emitDetectedPresentationQuestion({
+      lessonId,
+      problemId,
+      presentationId: problem ? parseOptionalString(problem.pres) : null,
+      pageIndex: problem ? parseOptionalNumber(problem.si) : null,
+      source: 'wsapp-unlockproblem'
+    });
   }
 
   private async cleanup() {
@@ -1786,6 +1952,7 @@ export class BrowserManager implements BrowserController, AccountLoginController
       clearTimeout(this.activeLessonEntryTimeout);
       this.activeLessonEntryTimeout = null;
     }
+    this.stopBackendQuestionSocket();
     if (this.page && this.visibleLoginAutoSaveHandler) {
       this.page.off('framenavigated', this.visibleLoginAutoSaveHandler);
       this.page.off('load', this.visibleLoginAutoSaveHandler);
@@ -1799,6 +1966,7 @@ export class BrowserManager implements BrowserController, AccountLoginController
     this.recentNetworkEvents = [];
     this.visibleLoginAutoSaveHandler = null;
     this.lastSavedSessionFingerprint = null;
+    this.lastDetectedQuestionKey = null;
     this.pendingActiveLessonKey = null;
     this.resetQuestionDetectionInstallState();
   }
@@ -1838,6 +2006,7 @@ export class BrowserManager implements BrowserController, AccountLoginController
       return;
     }
 
+    await this.startBackendQuestionSocket(payload.lessonId, payload.lessonHref).catch(() => undefined);
     await this.navigate(payload.lessonHref);
     this.traceStore?.record('classroom_entered', '已成功进入课堂', {
       lessonId: payload.lessonId,

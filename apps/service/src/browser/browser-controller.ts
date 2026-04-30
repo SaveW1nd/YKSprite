@@ -122,8 +122,9 @@ export type DetectedQuestionEvent = {
   isComplete: boolean;
   imageUrl: string | null;
   detectedAt: string;
+  presentationId?: string | null;
   pageIndex?: number | null;
-  source?: 'runtime-state' | 'curr-slide-event';
+  source?: 'runtime-state' | 'curr-slide-event' | 'presentation-slide' | 'wsapp-unlockproblem';
 };
 
 export type DetectedClassroomEvent = {
@@ -162,8 +163,11 @@ export interface BrowserController {
   navigate(url: string): Promise<BrowserStatus>;
   discoverLessons(): Promise<LessonCandidate[]>;
   listExerciseEntries(): Promise<ExerciseEntry[]>;
-  listLessonPresentationSlides?(lessonId: string): Promise<LessonPresentationSlideList>;
-  readCurrentQuestionPresentationSlide?(lessonId: string): Promise<LessonPresentationSlide>;
+  listLessonPresentationSlides?(lessonId: string, presentationId?: string | null): Promise<LessonPresentationSlideList>;
+  readCurrentQuestionPresentationSlide?(
+    lessonId: string,
+    input?: { problemId?: string | null; presentationId?: string | null }
+  ): Promise<LessonPresentationSlide>;
   openCurrentExercise(): Promise<string | null>;
   inspectPage(): Promise<PageSnapshot>;
   getDebugState(): Promise<BrowserDebugState>;

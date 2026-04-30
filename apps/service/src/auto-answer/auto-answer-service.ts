@@ -21,6 +21,7 @@ import type {
 } from './auto-answer-types.js';
 import { QuestionSolveService } from './question-solve-service.js';
 import type { AutoplayDebugTraceStore } from '../debug/autoplay-debug-trace.js';
+import { buildRuntimeStateFromPresentationSlide } from '../browser/question-runtime.js';
 import {
   buildRainClassroomHomeUrl,
   buildRainClassroomLessonUrl,
@@ -117,6 +118,10 @@ type AutoAnswerTarget = {
   exerciseUrl: string | null;
   runtimeState: ExerciseRuntimeState | null;
 };
+
+const RUNTIME_RESOLUTION_ATTEMPTS = 4;
+const RUNTIME_RESOLUTION_DELAY_MS = 1000;
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const runLimited = async <T, R>(items: T[], concurrency: number, worker: (item: T, index: number) => Promise<R>) => {
   if (items.length === 0) {
@@ -395,20 +400,46 @@ export class AutoAnswerService {
     activeLesson: LessonCandidate,
     preferredQuestion: DetectedQuestionEvent | null
   ): Promise<AutoAnswerTarget | null> {
-    if (!preferredQuestion?.routePath || preferredQuestion.lessonId !== activeLesson.id) {
+    if (!preferredQuestion || preferredQuestion.lessonId !== activeLesson.id) {
       return null;
     }
 
-    const baseUrl = this.browserController.getStatus().pageUrl ?? activeLesson.href;
-    if (!baseUrl) {
-      return null;
+    const slides =
+      (await this.browserController.listLessonPresentationSlides?.(
+        activeLesson.id,
+        preferredQuestion.presentationId ?? null
+      )) ?? [];
+    const slide = slides.find((item) => item.problemId === preferredQuestion.problemId) ?? null;
+    if (slide) {
+      const runtimeState = buildRuntimeStateFromPresentationSlide(
+        activeLesson.id,
+        slide,
+        preferredQuestion.pageIndex ?? slide.pageIndex ?? 0
+      );
+      if (runtimeState) {
+        const baseUrl = this.browserController.getStatus().pageUrl ?? activeLesson.href;
+        return {
+          entryId: `preferred-${preferredQuestion.problemId}`,
+          exerciseUrl: runtimeState.routePath && baseUrl ? new URL(runtimeState.routePath, baseUrl).toString() : null,
+          runtimeState
+        };
+      }
     }
 
-    return {
-      entryId: `preferred-${preferredQuestion.problemId}`,
-      exerciseUrl: new URL(preferredQuestion.routePath, baseUrl).toString(),
-      runtimeState: null
-    };
+    if (preferredQuestion.routePath) {
+      const baseUrl = this.browserController.getStatus().pageUrl ?? activeLesson.href;
+      if (!baseUrl) {
+        return null;
+      }
+
+      return {
+        entryId: `preferred-${preferredQuestion.problemId}`,
+        exerciseUrl: new URL(preferredQuestion.routePath, baseUrl).toString(),
+        runtimeState: null
+      };
+    }
+
+    return null;
   }
 
   private hasRecentlySubmittedProblem(lessonId: string, problemId: string | null) {
@@ -436,9 +467,32 @@ export class AutoAnswerService {
       await this.browserController.navigate(exerciseUrl);
     }
 
-    const runtimeState = await this.browserController.readExerciseRuntimeState();
-    if (runtimeState && (!expectedLessonId || runtimeState.lessonId === expectedLessonId)) {
-      return runtimeState;
+    for (let attempt = 0; attempt < RUNTIME_RESOLUTION_ATTEMPTS; attempt += 1) {
+      const runtimeState = await this.browserController.readExerciseRuntimeState();
+      if (runtimeState && (!expectedLessonId || runtimeState.lessonId === expectedLessonId)) {
+        return runtimeState;
+      }
+
+      if (expectedLessonId && this.browserController.readCurrentQuestionPresentationSlide) {
+        const presentationSlide =
+          (await this.browserController.readCurrentQuestionPresentationSlide(expectedLessonId, {
+            problemId: fallbackRuntimeState?.problemId ?? null
+          })) ?? null;
+        if (presentationSlide) {
+          const presentationRuntimeState = buildRuntimeStateFromPresentationSlide(
+            expectedLessonId,
+            presentationSlide,
+            presentationSlide.pageIndex ?? 0
+          );
+          if (presentationRuntimeState) {
+            return presentationRuntimeState;
+          }
+        }
+      }
+
+      if (attempt < RUNTIME_RESOLUTION_ATTEMPTS - 1) {
+        await delay(RUNTIME_RESOLUTION_DELAY_MS);
+      }
     }
 
     return null;
@@ -476,7 +530,9 @@ export class AutoAnswerService {
           throw new Error(`No current question detected for ${entryId}`);
         }
         const presentationSlide = run.lessonId
-          ? (await this.browserController.readCurrentQuestionPresentationSlide?.(run.lessonId)) ?? null
+          ? (await this.browserController.readCurrentQuestionPresentationSlide?.(run.lessonId, {
+              problemId: runtimeState.problemId
+            })) ?? null
           : null;
         const presentationImageUrl = presentationSlide?.imageUrl ?? null;
         if (!presentationImageUrl) {

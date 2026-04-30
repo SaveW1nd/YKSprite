@@ -113,6 +113,7 @@ export class AccountMonitorManager {
         new BrowserManager({
           sessionStore: input.sessionStore,
           accountRepository: this.accountRepository,
+          accountId: input.accountId,
           traceStore: input.traceStore
         }));
   }

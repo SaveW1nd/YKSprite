@@ -5,7 +5,10 @@ dist
 coverage
 .turbo
 .DS_Store
+.tmp/
+apps/*/.tmp/
 out
 release
 data
+apps/service/*.db
 .env
