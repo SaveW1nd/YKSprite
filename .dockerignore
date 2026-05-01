@@ -1,0 +1,9 @@
+.git
+.DS_Store
+node_modules
+**/node_modules
+**/dist
+apps/desktop/dist-electron
+backup
+data
+temp
