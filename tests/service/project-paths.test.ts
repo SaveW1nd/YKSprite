@@ -8,7 +8,7 @@ describe('project paths', () => {
     const moduleUrl = pathToFileURL(path.resolve(process.cwd(), 'apps/service/src/index.ts')).href;
 
     expect(resolveProjectRoot(moduleUrl)).toBe(process.cwd());
-    expect(resolveProjectPath(moduleUrl, '.env')).toBe(path.resolve(process.cwd(), '.env'));
+    expect(resolveProjectPath(moduleUrl, 'README.md')).toBe(path.resolve(process.cwd(), 'README.md'));
   });
 
   it('resolves the repository root from a built service module path', () => {

@@ -1,8 +1,4 @@
 import { buildServiceApp } from './app.js';
-import { loadEnvFile } from './env-loader.js';
-import { resolveProjectPath } from './project-paths.js';
-
-loadEnvFile(resolveProjectPath(import.meta.url, '.env'));
 
 const app = buildServiceApp();
 
