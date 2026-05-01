@@ -5,8 +5,8 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY scripts ./scripts
 COPY apps ./apps
 COPY packages ./packages
-RUN corepack enable && pnpm install --frozen-lockfile
-RUN pnpm build
+RUN corepack enable && pnpm install --filter @yksprite/service... --frozen-lockfile
+RUN pnpm --filter @yksprite/service... build
 
 FROM node:22-alpine AS runtime
 WORKDIR /app
