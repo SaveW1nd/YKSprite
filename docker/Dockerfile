@@ -11,5 +11,6 @@ RUN pnpm build
 FROM node:22-alpine AS runtime
 WORKDIR /app
 COPY --from=base /app ./
+RUN mkdir -p /app/data
 EXPOSE 3000
 CMD ["node", "apps/service/dist/index.js"]

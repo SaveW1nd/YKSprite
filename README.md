@@ -8,6 +8,7 @@
 - `pnpm build`
 - `pnpm package:desktop`
 - `pnpm docker:build`
+- `pnpm docker:run`
 - `pnpm docker:smoke`
 
 

@@ -10,7 +10,8 @@
     "build": "pnpm -r --if-present build",
     "package:desktop": "pnpm --filter @yksprite/desktop --fail-if-no-match package",
     "docker:build": "docker build -f docker/Dockerfile -t yksprite:dev .",
-    "docker:smoke": "docker run --rm -p 3000:3000 yksprite:dev",
+    "docker:run": "docker run --rm -p 3000:3000 -v \"$PWD/data:/app/data\" yksprite:dev",
+    "docker:smoke": "docker run --rm -p 3000:3000 -v \"$PWD/data:/app/data\" yksprite:dev",
     "postinstall": "node scripts/ensure-better-sqlite3.cjs"
   },
   "pnpm": {
