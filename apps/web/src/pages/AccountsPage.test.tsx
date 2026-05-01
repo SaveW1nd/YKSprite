@@ -6,6 +6,7 @@ import type { ManagedAccount } from '../lib/api';
 const {
   fetchAccountsMock,
   updateAccountMonitoringMock,
+  updateAccountActiveLessonEnterDelayMock,
   deleteAccountMock,
   startAccountLoginMock,
   fetchAccountLoginStateMock,
@@ -14,6 +15,7 @@ const {
 } = vi.hoisted(() => ({
   fetchAccountsMock: vi.fn<typeof import('../lib/api').fetchAccounts>(),
   updateAccountMonitoringMock: vi.fn<typeof import('../lib/api').updateAccountMonitoring>(),
+  updateAccountActiveLessonEnterDelayMock: vi.fn<typeof import('../lib/api').updateAccountActiveLessonEnterDelay>(),
   deleteAccountMock: vi.fn<typeof import('../lib/api').deleteAccount>(),
   startAccountLoginMock: vi.fn<typeof import('../lib/api').startAccountLogin>(),
   fetchAccountLoginStateMock: vi.fn<typeof import('../lib/api').fetchAccountLoginState>(),
@@ -31,6 +33,7 @@ vi.mock('../lib/api', async () => {
     stopAccountLogin: stopAccountLoginMock,
     subscribeAccountEvents: subscribeAccountEventsMock,
     updateAccountMonitoring: updateAccountMonitoringMock,
+    updateAccountActiveLessonEnterDelay: updateAccountActiveLessonEnterDelayMock,
     deleteAccount: deleteAccountMock
   };
 });
@@ -40,6 +43,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   fetchAccountsMock.mockReset();
   updateAccountMonitoringMock.mockReset();
+  updateAccountActiveLessonEnterDelayMock.mockReset();
   deleteAccountMock.mockReset();
   startAccountLoginMock.mockReset();
   fetchAccountLoginStateMock.mockReset();
@@ -222,6 +226,55 @@ describe('AccountsPage', () => {
       expect(updateAccountMonitoringMock).toHaveBeenCalledWith(1, true);
     });
     expect(await screen.findByText('monitoring')).toBeInTheDocument();
+  });
+
+  it('updates the account active lesson enter delay from the inline dialog', async () => {
+    fetchAccountsMock.mockResolvedValue([
+      {
+        id: 1,
+        userId: '47489393',
+        name: '别点我我不会',
+        accountKey: '别点我我不会',
+        platform: 'Yuketang',
+        status: 'healthy',
+        lastCheckedAt: '2026-04-17T10:00:00.000Z',
+        lastErrorReason: null,
+        createdAt: '2026-04-16T10:00:00.000Z',
+        note: null,
+        monitoringEnabled: true,
+        activeLessonEnterDelayMs: 0,
+        monitorStatus: 'monitoring',
+        recentLogs: []
+      } as ManagedAccount
+    ]);
+    subscribeAccountEventsMock.mockReturnValue(() => undefined);
+    updateAccountActiveLessonEnterDelayMock.mockResolvedValue({
+      id: 1,
+      userId: '47489393',
+      name: '别点我我不会',
+      accountKey: '别点我我不会',
+      platform: 'Yuketang',
+      status: 'healthy',
+      lastCheckedAt: '2026-04-17T10:00:00.000Z',
+      lastErrorReason: null,
+      createdAt: '2026-04-16T10:00:00.000Z',
+      note: null,
+      monitoringEnabled: true,
+      activeLessonEnterDelayMs: 12_000,
+      monitorStatus: 'monitoring',
+      recentLogs: []
+    } as ManagedAccount);
+
+    render(<AccountsPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '设置进课等待时长' }));
+    fireEvent.change(screen.getByLabelText('进课等待秒数'), { target: { value: '12' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => {
+      expect(updateAccountActiveLessonEnterDelayMock).toHaveBeenCalledWith(1, 12_000);
+    });
+    expect(await screen.findByText('进课等待 12秒')).toBeInTheDocument();
   });
 
   it('shows the backend api error on the error status badge tooltip', async () => {

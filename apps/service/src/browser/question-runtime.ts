@@ -119,7 +119,7 @@ export const normalizeOptionList = (value: unknown) => {
 export const buildRuntimeStateFromPresentationSlide = (
   lessonId: string,
   slide: NonNullable<LessonPresentationSlide>,
-  fallbackPageIndex = 0
+  defaultPageIndex = 0
 ): ExerciseRuntimeState | null => {
   const raw = slide.raw && typeof slide.raw === 'object' ? (slide.raw as Record<string, unknown>) : {};
   const problem = raw.problem && typeof raw.problem === 'object' ? (raw.problem as Record<string, unknown>) : {};
@@ -146,7 +146,7 @@ export const buildRuntimeStateFromPresentationSlide = (
     exerciseIndex,
     problemId,
     problemType,
-    pageIndex: slide.pageIndex ?? parseOptionalNumber(raw.page) ?? parseOptionalNumber(raw.index) ?? fallbackPageIndex,
+    pageIndex: slide.pageIndex ?? parseOptionalNumber(raw.page) ?? parseOptionalNumber(raw.index) ?? defaultPageIndex,
     questionText:
       parseOptionalString(problem.body) ??
       parseOptionalString(raw.questionText) ??

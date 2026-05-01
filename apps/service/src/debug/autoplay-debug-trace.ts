@@ -1,6 +1,13 @@
 export type AutoplayDebugTraceEventType =
   | 'classroom_detected'
   | 'classroom_entered'
+  | 'lesson_checkin'
+  | 'timeline_fetch'
+  | 'presentation_fetch'
+  | 'question_resolved'
+  | 'question_collect_started'
+  | 'question_collect_ready'
+  | 'question_collect_failed'
   | 'question_ws_failed'
   | 'ai_prompt'
   | 'ai_request_started'

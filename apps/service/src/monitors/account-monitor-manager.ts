@@ -4,7 +4,7 @@ import { AutoplayMonitorService } from '../auto-answer/autoplay-monitor-service.
 import { QuestionSolveService } from '../auto-answer/question-solve-service.js';
 import { AutomationStore } from '../automation/automation-store.js';
 import type { BrowserController } from '../browser/browser-controller.js';
-import { BrowserManager } from '../browser/browser-manager.js';
+import { RainClassroomHttpController } from '../browser/rain-classroom-http-controller.js';
 import { AccountRepository } from '../db/account-repository.js';
 import type { StoredSession } from '../browser/session-store.js';
 import { AssistRepository } from '../db/assist-repository.js';
@@ -48,6 +48,7 @@ type AccountMonitorManagerOptions = {
   onSnapshotChanged?: (accountId: number) => void;
   controllerFactory?: (input: {
     accountId: number;
+    activeLessonEnterDelayMs: number;
     sessionStore: AccountSessionStore;
     traceStore: AutoplayDebugTraceStore;
   }) => BrowserController;
@@ -110,11 +111,10 @@ export class AccountMonitorManager {
     this.controllerFactory =
       options.controllerFactory ??
       ((input) =>
-        new BrowserManager({
+        new RainClassroomHttpController({
           sessionStore: input.sessionStore,
-          accountRepository: this.accountRepository,
-          accountId: input.accountId,
-          traceStore: input.traceStore
+          traceStore: input.traceStore,
+          activeLessonEnterDelayMs: input.activeLessonEnterDelayMs
         }));
   }
 
@@ -148,6 +148,7 @@ export class AccountMonitorManager {
     const sessionStore = new AccountSessionStore(this.accountRepository, accountId);
     const browserController = this.controllerFactory({
       accountId,
+      activeLessonEnterDelayMs: account.activeLessonEnterDelayMs,
       sessionStore,
       traceStore
     });
@@ -248,6 +249,19 @@ export class AccountMonitorManager {
     return account;
   }
 
+  async setActiveLessonEnterDelayMs(accountId: number, delayMs: number) {
+    const account = this.accountRepository.setActiveLessonEnterDelayMs(accountId, delayMs);
+    if (!account) {
+      return null;
+    }
+
+    if (account.monitoringEnabled && this.workers.has(accountId)) {
+      await this.startForAccount(accountId, 'refresh');
+    }
+
+    return account;
+  }
+
   async deleteAccount(accountId: number) {
     await this.stopForAccount(accountId);
     this.accountRepository.delete(accountId);
@@ -300,10 +314,15 @@ export class AccountMonitorManager {
         this.appendLog(worker, type, '成功进入课堂');
       } else if (type === 'classroom_detected') {
         const delayMs = typeof data.delayMs === 'number' ? data.delayMs : null;
-        const delaySeconds = delayMs !== null ? Math.max(1, Math.ceil(delayMs / 1000)) : 10;
-        this.appendLog(worker, type, `检测到课堂，${delaySeconds}秒后进入课堂`);
+        const delaySeconds = delayMs !== null ? Math.max(0, Math.ceil(delayMs / 1000)) : 0;
+        this.appendLog(worker, type, delaySeconds > 0 ? `检测到课堂，${delaySeconds}秒后进入课堂` : '检测到课堂，立即进入课堂');
+      } else if (type === 'question_collect_failed') {
+        const reason = typeof data.reason === 'string' && data.reason.trim() ? data.reason.trim() : '题目提取失败';
+        this.appendLog(worker, type, reason);
+      } else if (type === 'question_ws_failed') {
+        this.appendLog(worker, type, '题目推送连接失败，等待下一次同步');
       } else if (type === 'ai_request_started') {
-        this.appendLog(worker, type, '已送入AI');
+        this.appendLog(worker, type, '提交AI自动作答');
       } else if (type === 'ai_request_failed') {
         const provider = typeof data.provider === 'string' ? data.provider : null;
         const reason = typeof data.reason === 'string' ? data.reason : message;
@@ -315,6 +334,8 @@ export class AccountMonitorManager {
           checkedAt: event.at
         });
         this.appendLog(worker, type, '答案成功获取');
+      } else if (type === 'submit_payload') {
+        this.appendLog(worker, type, '正在提交答案');
       } else if (type === 'submit_result') {
         this.handleSubmitResultLog(worker, type, data);
       }
@@ -370,7 +391,14 @@ export class AccountMonitorManager {
 
     if (ok) {
       worker.pendingSubmitFailures.delete(key);
-      this.appendLog(worker, type, '答案提交成功');
+      const message = typeof data.message === 'string' ? data.message : null;
+      this.appendLog(
+        worker,
+        type,
+        message === 'LOCAL_ALREADY_COMPLETED' || message === 'RUNTIME_ALREADY_COMPLETED'
+          ? '重复题目'
+          : '答案提交成功'
+      );
       return;
     }
 

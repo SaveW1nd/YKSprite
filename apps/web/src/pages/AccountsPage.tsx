@@ -15,6 +15,7 @@ import {
   startAccountLogin,
   stopAccountLogin,
   subscribeAccountEvents,
+  updateAccountActiveLessonEnterDelay,
   updateAccountMonitoring,
   type AccountLoginState,
   type ManagedAccount
@@ -139,6 +140,22 @@ const formatTimestamp = (value: string | null) => {
   });
 };
 
+const sortLogsChronologically = (logs: ManagedAccount['recentLogs'] = []) =>
+  [...logs].sort((left, right) => {
+    const byTime = new Date(left.at).getTime() - new Date(right.at).getTime();
+    return byTime === 0 ? left.id - right.id : byTime;
+  });
+
+const formatEnterDelay = (delayMs: number | null | undefined) => {
+  const totalSeconds = Math.max(0, Math.ceil((delayMs ?? 0) / 1000));
+  if (totalSeconds < 60) {
+    return `${totalSeconds}秒`;
+  }
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds > 0 ? `${minutes}分${seconds}秒` : `${minutes}分钟`;
+};
+
 export function AccountsPage() {
   const { setSectionMetrics } = usePageMetrics();
   const [accounts, setAccounts] = React.useState<ManagedAccount[]>([]);
@@ -151,10 +168,23 @@ export function AccountsPage() {
   const [statusFilter, setStatusFilter] = React.useState<string>('all');
   const [selectedLoginPlatform, setSelectedLoginPlatform] = React.useState<string>('rain-classroom');
   const [openDropdown, setOpenDropdown] = React.useState<'platform' | 'status' | 'loginPlatform' | null>(null);
+  const [enterDelayEditor, setEnterDelayEditor] = React.useState<{
+    accountId: number;
+    value: string;
+    error: string | null;
+  } | null>(null);
   const [loginState, setLoginState] = React.useState<AccountLoginState>(createIdleLoginState());
   const [hoveredErrorBadgeAccountId, setHoveredErrorBadgeAccountId] = React.useState<number | null>(null);
   const loginRequestRef = React.useRef(0);
   const loginAccountCountBeforeStartRef = React.useRef<number | null>(null);
+  const logPanelRefs = React.useRef(new Map<number, HTMLDivElement>());
+  const logPanelScrollKey = React.useMemo(
+    () =>
+      accounts
+        .map((account) => `${account.id}:${account.recentLogs?.length ?? 0}:${account.recentLogs?.[0]?.id ?? 'none'}`)
+        .join('|'),
+    [accounts]
+  );
 
   const resetModalState = React.useCallback(() => {
     loginRequestRef.current += 1;
@@ -212,6 +242,15 @@ export function AccountsPage() {
       void loadAccounts('push');
     });
   }, [loadAccounts]);
+
+  React.useEffect(() => {
+    for (const accountId of expandedAccounts) {
+      const panel = logPanelRefs.current.get(accountId);
+      if (panel) {
+        panel.scrollTop = panel.scrollHeight;
+      }
+    }
+  }, [expandedAccounts, logPanelScrollKey]);
 
   React.useEffect(() => {
     if (!loginNotice) {
@@ -378,6 +417,31 @@ export function AccountsPage() {
 
     const updatedAccount = await updateAccountMonitoring(accountId, enabled);
     setAccounts((current) => current.map((account) => (account.id === accountId ? updatedAccount : account)));
+  };
+
+  const openEnterDelayEditor = (account: ManagedAccount) => {
+    const currentSeconds = Math.max(0, Math.ceil((account.activeLessonEnterDelayMs ?? 0) / 1000));
+    setEnterDelayEditor({
+      accountId: account.id,
+      value: String(currentSeconds),
+      error: null
+    });
+  };
+
+  const handleSaveEnterDelay = async () => {
+    if (!enterDelayEditor) {
+      return;
+    }
+
+    const seconds = Number(enterDelayEditor.value.trim());
+    if (!Number.isInteger(seconds) || seconds < 0 || seconds > 300) {
+      setEnterDelayEditor((current) => (current ? { ...current, error: '请输入 0 到 300 之间的整数秒数' } : current));
+      return;
+    }
+
+    const updatedAccount = await updateAccountActiveLessonEnterDelay(enterDelayEditor.accountId, seconds * 1000);
+    setAccounts((current) => current.map((entry) => (entry.id === enterDelayEditor.accountId ? updatedAccount : entry)));
+    setEnterDelayEditor(null);
   };
 
   const handleDeleteAccount = async (accountId: number) => {
@@ -564,22 +628,42 @@ export function AccountsPage() {
                     </button>
                   </div>
 
-                  <button
-                    aria-label={expanded ? '收起账号详情' : '展开账号详情'}
-                    className="account-log-toggle"
-                    type="button"
-                    onClick={() => toggleExpanded(row.id)}
-                  >
-                    {expanded ? '收起日志' : '展开日志'}
-                  </button>
+                  <div className="account-log-controls">
+                    <button
+                      aria-label="设置进课等待时长"
+                      className="account-log-delay-button"
+                      type="button"
+                      onClick={() => openEnterDelayEditor(row)}
+                    >
+                      进课等待 {formatEnterDelay(row.activeLessonEnterDelayMs)}
+                    </button>
+                    <button
+                      aria-label={expanded ? '收起账号详情' : '展开账号详情'}
+                      className="account-log-toggle"
+                      type="button"
+                      onClick={() => toggleExpanded(row.id)}
+                    >
+                      {expanded ? '收起日志' : '展开日志'}
+                    </button>
+                  </div>
 
                   {expanded ? (
-                    <div aria-label="账号日志" className="account-log-panel account-log-panel-scrollable">
+                    <div
+                      ref={(element) => {
+                        if (element) {
+                          logPanelRefs.current.set(row.id, element);
+                        } else {
+                          logPanelRefs.current.delete(row.id);
+                        }
+                      }}
+                      aria-label="账号日志"
+                      className="account-log-panel account-log-panel-scrollable"
+                    >
                       {(row.recentLogs?.length ?? 0) === 0 ? (
                         <p className="account-log-empty">暂无实时日志</p>
                       ) : (
                         <ol className="account-log-list">
-                          {row.recentLogs!.map((log) => (
+                          {sortLogsChronologically(row.recentLogs).map((log) => (
                             <li key={log.id} className="account-log-line">
                               <time className="account-log-time account-log-time-fixed" dateTime={log.at}>
                                 {formatTimestamp(log.at)}
@@ -644,6 +728,50 @@ export function AccountsPage() {
                 </div>
               )}
             </div>
+          </section>
+        </div>
+      ) : null}
+
+      {enterDelayEditor ? (
+        <div className="floating-modal-overlay" onClick={() => setEnterDelayEditor(null)}>
+          <section
+            aria-label="设置进课等待时长弹层"
+            className="floating-modal floating-modal-compact"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <form
+              className="enter-delay-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleSaveEnterDelay();
+              }}
+            >
+              <label className="enter-delay-field">
+                <span>进课等待秒数</span>
+                <input
+                  autoFocus
+                  inputMode="numeric"
+                  max={300}
+                  min={0}
+                  type="number"
+                  value={enterDelayEditor.value}
+                  onChange={(event) =>
+                    setEnterDelayEditor((current) =>
+                      current ? { ...current, value: event.target.value, error: null } : current
+                    )
+                  }
+                />
+              </label>
+              {enterDelayEditor.error ? <p className="enter-delay-error">{enterDelayEditor.error}</p> : null}
+              <div className="enter-delay-actions">
+                <button className="account-action-button" type="button" onClick={() => setEnterDelayEditor(null)}>
+                  取消
+                </button>
+                <button className="account-action-button account-action-button-primary" type="submit">
+                  保存
+                </button>
+              </div>
+            </form>
           </section>
         </div>
       ) : null}

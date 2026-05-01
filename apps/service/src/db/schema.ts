@@ -205,6 +205,7 @@ export const accountsTable = sqliteTable('accounts', {
   userId: text('user_id'),
   name: text('name'),
   monitoringEnabled: integer('monitoring_enabled', { mode: 'boolean' }).notNull().default(true),
+  activeLessonEnterDelayMs: integer('active_lesson_enter_delay_ms').notNull().default(0),
   accountKey: text('account_key').notNull(),
   platform: text('platform').notNull(),
   status: text('status').notNull(),

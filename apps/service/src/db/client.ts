@@ -235,6 +235,7 @@ const applyMigrations = (sqlite: Database.Database) => {
       user_id TEXT,
       name TEXT,
       monitoring_enabled INTEGER NOT NULL DEFAULT 1,
+      active_lesson_enter_delay_ms INTEGER NOT NULL DEFAULT 0,
       account_key TEXT NOT NULL,
       platform TEXT NOT NULL,
       status TEXT NOT NULL,
@@ -263,6 +264,7 @@ const applyMigrations = (sqlite: Database.Database) => {
   ensureColumn('user_id', 'TEXT');
   ensureColumn('name', 'TEXT');
   ensureColumn('monitoring_enabled', 'INTEGER NOT NULL DEFAULT 1');
+  ensureColumn('active_lesson_enter_delay_ms', 'INTEGER NOT NULL DEFAULT 0');
   ensureColumn('cookies_json', 'TEXT');
   ensureColumn('cookie_count', 'INTEGER');
   ensureColumn('session_saved_at', 'TEXT');

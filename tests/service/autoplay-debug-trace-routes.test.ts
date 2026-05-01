@@ -16,8 +16,7 @@ const idleSessionState: SessionState = {
 const createBrowserController = (): BrowserController => ({
   getStatus: () => ({
     status: 'idle',
-    engine: 'chromium',
-    headless: true,
+    engine: 'http',
     mode: null,
     startedAt: null,
     pageUrl: null,
@@ -25,26 +24,23 @@ const createBrowserController = (): BrowserController => ({
   }),
   start: async () => ({
     status: 'running',
-    engine: 'chromium',
-    headless: true,
-    mode: 'headless',
+    engine: 'http',
+    mode: 'http',
     startedAt: '2026-04-16T00:00:00.000Z',
     pageUrl: 'about:blank',
     lastError: null
   }),
   startLogin: async () => ({
     status: 'running',
-    engine: 'chromium',
-    headless: true,
-    mode: 'visible-login',
+    engine: 'http',
+    mode: 'http',
     startedAt: '2026-04-16T00:00:00.000Z',
     pageUrl: 'https://www.yuketang.cn/web',
     lastError: null
   }),
   stop: async () => ({
     status: 'idle',
-    engine: 'chromium',
-    headless: true,
+    engine: 'http',
     mode: null,
     startedAt: null,
     pageUrl: null,
@@ -54,18 +50,16 @@ const createBrowserController = (): BrowserController => ({
   saveSession: async () => idleSessionState,
   navigateHome: async () => ({
     status: 'running',
-    engine: 'chromium',
-    headless: true,
-    mode: 'headless',
+    engine: 'http',
+    mode: 'http',
     startedAt: '2026-04-16T00:00:00.000Z',
     pageUrl: 'https://www.yuketang.cn/v2/web/index',
     lastError: null
   }),
   navigate: async (url: string) => ({
     status: 'running',
-    engine: 'chromium',
-    headless: true,
-    mode: 'headless',
+    engine: 'http',
+    mode: 'http',
     startedAt: '2026-04-16T00:00:00.000Z',
     pageUrl: url,
     lastError: null

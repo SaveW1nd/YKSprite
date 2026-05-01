@@ -3,6 +3,7 @@ export type ManagedAccount = {
   userId: string | null;
   name: string | null;
   monitoringEnabled?: boolean;
+  activeLessonEnterDelayMs?: number;
   accountKey: string;
   platform: string;
   status: 'healthy' | 'error';
@@ -153,6 +154,22 @@ export const updateAccountMonitoring = async (accountId: number, enabled: boolea
 
   if (!response.ok) {
     throw new Error(`Failed to update account monitoring: ${response.status}`);
+  }
+
+  return (await response.json()) as ManagedAccount;
+};
+
+export const updateAccountActiveLessonEnterDelay = async (accountId: number, delayMs: number): Promise<ManagedAccount> => {
+  const response = await fetch(`/api/accounts/${accountId}/active-lesson-enter-delay`, {
+    method: 'PATCH',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({ delayMs })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to update account active lesson enter delay: ${response.status}`);
   }
 
   return (await response.json()) as ManagedAccount;

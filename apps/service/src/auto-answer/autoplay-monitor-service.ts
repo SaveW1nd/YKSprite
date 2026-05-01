@@ -1,7 +1,5 @@
 import type { AutoAnswerService } from './auto-answer-service.js';
 import type { BrowserController, DetectedClassroomEvent, DetectedQuestionEvent } from '../browser/browser-controller.js';
-import { isRainClassroomHomePageUrl } from '../browser/rain-classroom-platforms.js';
-import { probeRuntimeStatus } from '../runtime/runtime-probe.js';
 
 export type AutoplayMonitorStatus = {
   enabled: boolean;
@@ -29,8 +27,6 @@ const createIdleStatus = (): AutoplayMonitorStatus => ({
 });
 
 const buildEventKey = (event: Pick<DetectedQuestionEvent, 'lessonId' | 'problemId'>) => `${event.lessonId}:${event.problemId}`;
-
-const parseLessonIdFromUrl = (url: string | null) => url?.match(/\/lesson\/fullscreen\/v3\/([^/?#]+)/)?.[1] ?? null;
 
 export class AutoplayMonitorService {
   private readonly autoAnswerService: AutoAnswerService;
@@ -153,48 +149,18 @@ export class AutoplayMonitorService {
       return;
     }
 
-    const snapshot = await this.browserController.inspectPage().catch(() => null);
-    const currentLessonId = parseLessonIdFromUrl(snapshot?.currentUrl ?? null);
-    const activeLesson = (await this.browserController.discoverLessons()).find((lesson) => lesson.lessonState === 'in_class' && lesson.href);
-
-    if (activeLesson?.id) {
-      this.currentLessonId = activeLesson.id;
-    }
-
-    if (snapshot) {
-      const runtimeStatus = probeRuntimeStatus(snapshot);
-      if (runtimeStatus.lessonState === 'ended') {
-        this.resetMonitoringCycle();
-        await this.onLog?.('下课了', 'lesson_ended');
-        await this.browserController.navigateHome();
-        await this.onLog?.('成功回到首页', 'returned_home');
-        return;
-      }
-
-      if (runtimeStatus.lessonState === 'in_class') {
-        return;
-      }
-
-      if (
-        runtimeStatus.currentUrl &&
-        !isRainClassroomHomePageUrl(runtimeStatus.currentUrl) &&
-        /\/lesson\/fullscreen\/v3\//.test(runtimeStatus.currentUrl) &&
-        (!currentLessonId || currentLessonId !== activeLesson?.id)
-      ) {
-        this.resetMonitoringCycle();
-        await this.browserController.navigateHome();
-        await this.onLog?.('成功回到首页', 'returned_home');
-      }
-    }
-
-    if (!activeLesson?.href) {
-      if (isRainClassroomHomePageUrl(snapshot?.currentUrl)) {
-        this.resetMonitoringCycle();
-      }
+    if (this.currentLessonId && this.browserController.supportsPushedQuestionDetection?.()) {
       return;
     }
 
-    if (currentLessonId && currentLessonId === activeLesson.id) {
+    const activeLesson = (await this.browserController.discoverLessons()).find((lesson) => lesson.lessonState === 'in_class' && lesson.href);
+
+    if (!activeLesson?.href) {
+      this.resetMonitoringCycle();
+      return;
+    }
+
+    if (this.currentLessonId === activeLesson.id) {
       return;
     }
 
@@ -203,6 +169,7 @@ export class AutoplayMonitorService {
     }
 
     await this.browserController.navigate(activeLesson.href);
+    this.currentLessonId = activeLesson.id;
     await this.onLog?.('成功进入课堂', 'classroom_entered');
   }
 
@@ -219,6 +186,9 @@ export class AutoplayMonitorService {
     };
 
     if (event.eventType === 'lesson_started') {
+      if (this.currentLessonId !== event.lessonId) {
+        await this.onLog?.('成功进入课堂', 'classroom_entered');
+      }
       this.currentLessonId = event.lessonId;
       return;
     }
@@ -229,6 +199,7 @@ export class AutoplayMonitorService {
 
     this.currentLessonId = null;
     this.resetMonitoringCycle();
+    await this.onLog?.('下课了', 'lesson_ended');
     await this.browserController.navigateHome().catch(() => undefined);
     await this.onLog?.('课堂已结束，已返回首页', 'classroom_left');
   }

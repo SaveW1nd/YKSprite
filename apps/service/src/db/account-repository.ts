@@ -16,6 +16,7 @@ export type ManagedAccountRecord = {
   userId: string | null;
   name: string | null;
   monitoringEnabled: boolean;
+  activeLessonEnterDelayMs: number;
   accountKey: string;
   platform: string;
   status: ManagedAccountStatus;
@@ -135,6 +136,7 @@ export class AccountRepository {
       userId: row.userId,
       name: row.name,
       monitoringEnabled: row.monitoringEnabled,
+      activeLessonEnterDelayMs: row.activeLessonEnterDelayMs,
       accountKey: row.accountKey,
       platform: resolveStoredPlatformId(row.platform, row.origin),
       status: row.status as ManagedAccountStatus,
@@ -158,6 +160,7 @@ export class AccountRepository {
       userId: row.userId,
       name: row.name,
       monitoringEnabled: row.monitoringEnabled,
+      activeLessonEnterDelayMs: row.activeLessonEnterDelayMs,
       accountKey: row.accountKey,
       platform: resolveStoredPlatformId(row.platform, row.origin),
       status: row.status as ManagedAccountStatus,
@@ -183,6 +186,7 @@ export class AccountRepository {
       userId: row.userId,
       name: row.name,
       monitoringEnabled: row.monitoringEnabled,
+      activeLessonEnterDelayMs: row.activeLessonEnterDelayMs,
       accountKey: row.accountKey,
       platform: resolveStoredPlatformId(row.platform, row.origin),
       status: row.status as ManagedAccountStatus,
@@ -232,6 +236,18 @@ export class AccountRepository {
       .update(accountsTable)
       .set({
         monitoringEnabled: enabled
+      })
+      .where(eq(accountsTable.id, accountId))
+      .run();
+
+    return this.getById(accountId);
+  }
+
+  setActiveLessonEnterDelayMs(accountId: number, delayMs: number): ManagedAccountRecord | null {
+    this.database.db
+      .update(accountsTable)
+      .set({
+        activeLessonEnterDelayMs: delayMs
       })
       .where(eq(accountsTable.id, accountId))
       .run();

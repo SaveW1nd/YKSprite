@@ -1,10 +1,3 @@
-export type OcrResult = {
-  text: string;
-  sourceImage: string | null;
-  savedImagePath: string | null;
-  confidenceNote: string;
-};
-
 export type QuestionCapture = {
   id: number;
   questionId: string;
@@ -56,12 +49,4 @@ export type VisionAnalysisRecord = {
   confidence: 'low' | 'medium' | 'high';
   reasoningSummary: string;
   rawResponseJson: string;
-};
-
-export type DraftAnswer = {
-  questionId: string;
-  draft: string;
-  reasoningSummary: string;
-  confidence: 'low' | 'medium' | 'high';
-  generatedAt: string;
 };

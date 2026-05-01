@@ -110,7 +110,7 @@ describe('database client', () => {
 
     repository.upsertTask({
       id: 'task-1',
-      type: 'runtime_scan',
+      type: 'auto_answer_run',
       status: 'succeeded',
       startedAt: '2026-04-14T00:00:00.000Z',
       finishedAt: '2026-04-14T00:00:01.000Z',
@@ -127,7 +127,7 @@ describe('database client', () => {
     });
 
     const store = new AutomationStore(repository);
-    await store.executeTask('runtime_scan', 'Scan current lesson page', async () => 'ok');
+    await store.executeTask('auto_answer_run', 'Run auto answer flow', async () => 'ok');
 
     const tasks = repository.listTasks();
     const events = repository.listEvents();

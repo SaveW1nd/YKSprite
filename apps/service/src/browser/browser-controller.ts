@@ -1,8 +1,7 @@
 export type BrowserStatus = {
   status: 'idle' | 'starting' | 'running' | 'stopping' | 'error';
-  engine: 'chromium';
-  headless: true;
-  mode: 'headless' | 'visible-login' | 'qr-login' | null;
+  engine: 'http';
+  mode: 'http' | 'qr-login' | null;
   startedAt: string | null;
   pageUrl: string | null;
   lastError: string | null;
@@ -26,7 +25,7 @@ export type SessionState = {
   cookieCount: number;
   currentUrl: string | null;
   pageTitle: string | null;
-  mode: 'headless' | 'visible-login' | 'qr-login' | null;
+  mode: 'http' | 'qr-login' | string | null;
 };
 
 export type PageSnapshot = {
@@ -130,7 +129,7 @@ export type DetectedQuestionEvent = {
 export type DetectedClassroomEvent = {
   lessonId: string;
   eventType: 'lesson_started' | 'lesson_finished';
-  source: 'wsapp';
+  source: 'wsapp' | 'http';
   code: string | null;
   title: string | null;
   detectedAt: string;

@@ -1,10 +1,7 @@
 export type TaskType =
   | 'browser_boot'
   | 'session_attach'
-  | 'runtime_scan'
   | 'question_extract'
-  | 'ocr_extract'
-  | 'draft_generate'
   | 'auto_answer_run'
   | 'auto_answer_collect'
   | 'auto_answer_solve'

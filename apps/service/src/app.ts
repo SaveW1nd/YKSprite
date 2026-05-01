@@ -2,27 +2,22 @@ import Fastify from 'fastify';
 import { AccountRepository } from './db/account-repository.js';
 import { AutoAnswerRepository } from './auto-answer/auto-answer-repository.js';
 import { QuestionSolveService } from './auto-answer/question-solve-service.js';
-import type { BrowserController } from './browser/browser-controller.js';
 import { AutomationStore } from './automation/automation-store.js';
-import { SessionStore } from './browser/session-store.js';
 import { createDatabaseClient } from './db/client.js';
 import { AssistRepository } from './db/assist-repository.js';
 import { RuntimeRepository } from './db/runtime-repository.js';
-import { SessionRepository } from './db/session-repository.js';
 import { TaskRepository } from './db/task-repository.js';
 import { ApiConfigRepository } from './api-config/api-config-repository.js';
 import { ApiConfigService } from './api-config/api-config-service.js';
-import { registerAssistRoutes } from './routes/assist.js';
 import { registerAccountRoutes } from './routes/accounts.js';
 import { registerApiConfigRoutes } from './routes/api-config.js';
 import { registerAutomationRoutes } from './routes/automation.js';
 import { registerAutoplayDebugTraceRoutes } from './routes/autoplay-debug-trace.js';
 import { registerHealthRoute } from './routes/health.js';
-import { registerRuntimeRoutes } from './routes/runtime.js';
 import { VisionAnalysisService, type VisionAnalysisServiceLike } from './assist/vision-analysis-service.js';
 import { AutoplayDebugTraceStore } from './debug/autoplay-debug-trace.js';
 import { AccountMonitorManager } from './monitors/account-monitor-manager.js';
-import { BrowserManager } from './browser/browser-manager.js';
+import { RainClassroomHttpLoginController } from './browser/rain-classroom-http-login-controller.js';
 import type { AccountLoginController } from './browser/account-login-controller.js';
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseClient } from './db/client.js';
@@ -32,12 +27,12 @@ import { AccountEventHub } from './routes/account-events.js';
 
 type BuildServiceAppOptions = {
   databaseClient?: DatabaseClient;
-  browserController?: BrowserController;
   accountLoginController?: AccountLoginController;
   visionAnalysisService?: VisionAnalysisServiceLike;
   debugTraceStore?: AutoplayDebugTraceStore;
   accountMonitorControllerFactory?: (input: {
     accountId: number;
+    activeLessonEnterDelayMs: number;
     sessionStore: Pick<{ load(): Promise<StoredSession | null>; save(session: StoredSession): Promise<StoredSession> }, 'load' | 'save'>;
     traceStore: AutoplayDebugTraceStore;
   }) => AccountMonitorController;
@@ -53,7 +48,6 @@ export const buildServiceApp = (options: BuildServiceAppOptions = {}) => {
   });
   const databaseClient = options.databaseClient ?? createDatabaseClient();
   const accountRepository = new AccountRepository(databaseClient);
-  const sessionRepository = new SessionRepository(databaseClient);
   const taskRepository = new TaskRepository(databaseClient);
   const runtimeRepository = new RuntimeRepository(databaseClient);
   const assistRepository = new AssistRepository(databaseClient);
@@ -67,10 +61,8 @@ export const buildServiceApp = (options: BuildServiceAppOptions = {}) => {
   const automationStore = new AutomationStore(taskRepository);
   const questionSolveService = new QuestionSolveService(assistRepository, visionAnalysisService);
   let accountMonitorManager: AccountMonitorManager;
-  const defaultBrowserManager = new BrowserManager({
-    sessionStore: new SessionStore({ repository: sessionRepository }),
+  const defaultAccountLoginController = new RainClassroomHttpLoginController({
     accountRepository,
-    traceStore: debugTraceStore,
     onAccountSessionSaved: async (accountId) => {
       await accountMonitorManager.startForAccount(accountId, 'login');
       accountEventHub.publish({
@@ -79,9 +71,6 @@ export const buildServiceApp = (options: BuildServiceAppOptions = {}) => {
       });
     }
   });
-  const browserController =
-    options.browserController ??
-    defaultBrowserManager;
   accountMonitorManager = new AccountMonitorManager({
     accountRepository,
     runtimeRepository,
@@ -99,12 +88,10 @@ export const buildServiceApp = (options: BuildServiceAppOptions = {}) => {
   });
   const accountLoginController =
     options.accountLoginController ??
-    defaultBrowserManager;
+    defaultAccountLoginController;
   registerHealthRoute(app);
   registerAccountRoutes(app, accountRepository, accountMonitorManager, accountLoginController, accountEventHub);
   registerApiConfigRoutes(app, apiConfigService);
-  registerRuntimeRoutes(app, browserController, runtimeRepository, automationStore);
-  registerAssistRoutes(app, browserController, automationStore, runtimeRepository, assistRepository, visionAnalysisService);
   registerAutomationRoutes(app, automationStore);
   registerAutoplayDebugTraceRoutes(app, debugTraceStore);
 

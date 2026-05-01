@@ -64,17 +64,15 @@ describe('AccountMonitorManager', () => {
         ({
           start: vi.fn().mockResolvedValue({
             status: 'running',
-            engine: 'chromium',
-            headless: true,
-            mode: 'headless',
+            engine: 'http',
+            mode: 'http',
             startedAt: '2026-04-19T00:00:00.000Z',
             pageUrl: 'https://www.yuketang.cn/web?next=/v2/web/index&type=3',
             lastError: null
           }),
           stop: vi.fn().mockResolvedValue({
             status: 'idle',
-            engine: 'chromium',
-            headless: true,
+            engine: 'http',
             mode: null,
             startedAt: null,
             pageUrl: null,
@@ -82,8 +80,7 @@ describe('AccountMonitorManager', () => {
           }),
           getStatus: vi.fn().mockReturnValue({
             status: 'idle',
-            engine: 'chromium',
-            headless: true,
+            engine: 'http',
             mode: null,
             startedAt: null,
             pageUrl: null,
@@ -96,7 +93,7 @@ describe('AccountMonitorManager', () => {
             cookieCount: 1,
             currentUrl: 'https://www.yuketang.cn/v2/web/index',
             pageTitle: '雨课堂',
-            mode: 'headless'
+            mode: 'http'
           }),
           saveSession: vi.fn(),
           navigateHome: vi.fn(),
@@ -160,17 +157,15 @@ describe('AccountMonitorManager', () => {
         ({
           start: vi.fn().mockResolvedValue({
             status: 'running',
-            engine: 'chromium',
-            headless: true,
-            mode: 'headless',
+            engine: 'http',
+            mode: 'http',
             startedAt: '2026-04-20T07:54:17.000Z',
             pageUrl: 'https://www.yuketang.cn/v2/web/index',
             lastError: null
           }),
           stop: vi.fn().mockResolvedValue({
             status: 'idle',
-            engine: 'chromium',
-            headless: true,
+            engine: 'http',
             mode: null,
             startedAt: null,
             pageUrl: null,
@@ -178,8 +173,7 @@ describe('AccountMonitorManager', () => {
           }),
           getStatus: vi.fn().mockReturnValue({
             status: 'idle',
-            engine: 'chromium',
-            headless: true,
+            engine: 'http',
             mode: null,
             startedAt: null,
             pageUrl: null,
@@ -192,7 +186,7 @@ describe('AccountMonitorManager', () => {
             cookieCount: 1,
             currentUrl: 'https://www.yuketang.cn/v2/web/index',
             pageTitle: '雨课堂',
-            mode: 'headless'
+            mode: 'http'
           }),
           saveSession: vi.fn(),
           navigateHome: vi.fn(),
@@ -223,7 +217,7 @@ describe('AccountMonitorManager', () => {
       expect.objectContaining({
         checkedAt: '2026-04-20T07:54:17.000Z',
         currentUrl: 'https://www.yuketang.cn/v2/web/index',
-        mode: 'headless'
+        mode: 'http'
       })
     );
     expect(snapshot.monitorStatus).toBe('monitoring');
@@ -314,9 +308,8 @@ describe('AccountMonitorManager', () => {
       discoverLessons: vi.fn().mockResolvedValue([]),
       navigateHome: vi.fn().mockResolvedValue({
         status: 'running',
-        engine: 'chromium',
-        headless: true,
-        mode: 'headless',
+        engine: 'http',
+        mode: 'http',
         startedAt: '2026-04-20T06:00:00.000Z',
         pageUrl: 'https://www.yuketang.cn/v2/web/index',
         lastError: null
@@ -363,6 +356,33 @@ describe('AccountMonitorManager', () => {
 
     expect(accountRepository.markAccountError).toHaveBeenCalledWith(1, 'api key未配置，无法调用 AI 解题');
     expect(worker.logs.map((log) => log.message)).toEqual(['api key未配置，无法调用 AI 解题']);
+  });
+
+  it('keeps account logs focused on the user-facing answer flow', () => {
+    const manager = createManager();
+    const worker = createWorker();
+
+    (manager as any).patchTraceStore(worker);
+
+    worker.traceStore.record('lesson_checkin', 'Lesson checkin succeeded', { ok: true });
+    worker.traceStore.record('timeline_fetch', 'Timeline fetch succeeded', { ok: true });
+    worker.traceStore.record('presentation_fetch', 'Presentation fetch succeeded', { slideCount: 26 });
+    worker.traceStore.record('question_resolved', 'Question runtime data resolved', { problemType: 4 });
+    worker.traceStore.record('question_collect_started', 'Collecting question', {});
+    worker.traceStore.record('question_collect_ready', 'Collected question image', {});
+    worker.traceStore.record('ai_request_started', 'Sent AI request', {});
+    worker.traceStore.record('submit_payload', 'Submitting answer', {});
+    worker.traceStore.record('submit_result', 'Already completed', {
+      exerciseEntryId: 'preferred-problem-1',
+      ok: true,
+      message: 'LOCAL_ALREADY_COMPLETED'
+    });
+
+    expect(worker.logs.map((log) => log.message)).toEqual([
+      '提交AI自动作答',
+      '正在提交答案',
+      '重复题目'
+    ]);
   });
 
   it('uses the api controller as the default worker controller', () => {

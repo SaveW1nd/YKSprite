@@ -7,9 +7,8 @@ const createBrowserController = (
 ): BrowserController => ({
   getStatus: vi.fn(() => ({
     status: 'running',
-    engine: 'chromium',
-    headless: true,
-    mode: 'headless',
+    engine: 'http',
+    mode: 'http',
     startedAt: '2026-04-20T00:00:00.000Z',
     pageUrl: 'https://www.yuketang.cn/v2/web/index',
     lastError: null
@@ -23,15 +22,14 @@ const createBrowserController = (
     cookieCount: 2,
     currentUrl: 'https://www.yuketang.cn/v2/web/index',
     pageTitle: '雨课堂',
-    mode: 'headless'
+    mode: 'http'
   })),
   saveSession: vi.fn(),
   navigateHome: vi.fn(),
   navigate: vi.fn(async (url: string) => ({
     status: 'running',
-    engine: 'chromium',
-    headless: true,
-    mode: 'headless',
+    engine: 'http',
+    mode: 'http',
     startedAt: '2026-04-20T00:00:00.000Z',
     pageUrl: url,
     lastError: null
@@ -144,9 +142,8 @@ describe('AutoplayMonitorService', () => {
       ),
       navigateHome: vi.fn(async () => ({
         status: 'running',
-        engine: 'chromium',
-        headless: true,
-        mode: 'headless',
+        engine: 'http',
+        mode: 'http',
         startedAt: '2026-04-20T00:00:00.000Z',
         pageUrl: 'https://www.yuketang.cn/v2/web/index',
         lastError: null
@@ -169,6 +166,14 @@ describe('AutoplayMonitorService', () => {
     await service.start();
     await onClassroomEvent?.({
       lessonId: 'lesson-1',
+      eventType: 'lesson_started',
+      source: 'http',
+      code: 'ACTIVE_LESSON',
+      title: '第一讲',
+      detectedAt: '2026-04-20T05:59:00.000Z'
+    });
+    await onClassroomEvent?.({
+      lessonId: 'lesson-1',
       eventType: 'lesson_finished',
       source: 'wsapp',
       code: 'LESSON_FINISH',
@@ -177,7 +182,44 @@ describe('AutoplayMonitorService', () => {
     });
 
     expect(browserController.navigateHome).toHaveBeenCalled();
+    expect(onLog).toHaveBeenCalledWith('成功进入课堂', 'classroom_entered');
+    expect(onLog).toHaveBeenCalledWith('下课了', 'lesson_ended');
     expect(onLog).toHaveBeenCalledWith('课堂已结束，已返回首页', 'classroom_left');
+  });
+
+  it('stops lesson discovery polling while a pushed lesson stream is active', async () => {
+    vi.useFakeTimers();
+    let onClassroomEvent: ((event: any) => Promise<void>) | null = null;
+    const discoverLessons = vi.fn<BrowserController['discoverLessons']>().mockResolvedValue([]);
+    const browserController = {
+      ...createBrowserController(discoverLessons),
+      supportsPushedQuestionDetection: () => true,
+      startClassroomDetection: vi.fn(async (handler: (event: any) => Promise<void>) => {
+        onClassroomEvent = handler;
+      })
+    } as unknown as BrowserController;
+    const service = new AutoplayMonitorService({
+      autoAnswerService: {
+        getStatus: () => ({ status: 'idle' }),
+        start: vi.fn()
+      } as any,
+      browserController,
+      intervalMs: 1000
+    });
+
+    await service.start();
+    const callsBeforeClassroom = discoverLessons.mock.calls.length;
+    await onClassroomEvent?.({
+      lessonId: 'lesson-1',
+      eventType: 'lesson_started',
+      source: 'http',
+      code: 'ACTIVE_LESSON',
+      title: '第一讲',
+      detectedAt: '2026-04-20T05:59:00.000Z'
+    });
+    await vi.advanceTimersByTimeAsync(3000);
+
+    expect(discoverLessons).toHaveBeenCalledTimes(callsBeforeClassroom);
   });
 
   it('starts auto-answer from a curr-slide push event without re-confirming through list polling', async () => {
@@ -198,9 +240,8 @@ describe('AutoplayMonitorService', () => {
       supportsPushedQuestionDetection: () => true,
       getStatus: vi.fn(() => ({
         status: 'running',
-        engine: 'chromium',
-        headless: true,
-        mode: 'headless',
+        engine: 'http',
+        mode: 'http',
         startedAt: '2026-04-20T00:00:00.000Z',
         pageUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1',
         lastError: null
@@ -212,7 +253,7 @@ describe('AutoplayMonitorService', () => {
         cookieCount: 2,
         currentUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1',
         pageTitle: '雨课堂',
-        mode: 'headless'
+        mode: 'http'
       })),
       inspectPage: vi.fn(async () => ({
         currentUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1',

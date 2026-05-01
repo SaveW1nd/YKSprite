@@ -201,6 +201,81 @@ describe('App shell', () => {
     expect(logPanel.querySelector('time')?.textContent).toMatch(/^\d{2}\/\d{2} \d{2}:\d{2}:\d{2}$/);
   });
 
+  it('renders account logs in chronological flow order', async () => {
+    fetchAccountsMock.mockResolvedValue([
+      {
+        id: 1,
+        userId: '47489393',
+        name: '别点我我不会',
+        accountKey: '别点我我不会',
+        platform: 'rain-classroom',
+        status: 'healthy',
+        lastCheckedAt: '2026-04-17T10:00:00.000Z',
+        lastErrorReason: null,
+        note: null,
+        createdAt: '2026-04-16T10:00:00.000Z',
+        monitorStatus: 'monitoring',
+        monitorUpdatedAt: '2026-04-17T10:10:06.000Z',
+        recentLogs: [
+          {
+            id: 6,
+            at: '2026-04-17T10:10:06.000Z',
+            type: 'submit_result',
+            message: '答案提交成功'
+          },
+          {
+            id: 5,
+            at: '2026-04-17T10:10:05.000Z',
+            type: 'submit_payload',
+            message: '正在提交答案'
+          },
+          {
+            id: 4,
+            at: '2026-04-17T10:10:04.000Z',
+            type: 'ai_response',
+            message: '答案成功获取'
+          },
+          {
+            id: 3,
+            at: '2026-04-17T10:10:03.000Z',
+            type: 'ai_request_started',
+            message: '提交AI自动作答'
+          },
+          {
+            id: 2,
+            at: '2026-04-17T10:10:02.000Z',
+            type: 'question_detected',
+            message: '检测到题目'
+          },
+          {
+            id: 1,
+            at: '2026-04-17T10:10:01.000Z',
+            type: 'classroom_entered',
+            message: '成功进入课堂'
+          }
+        ]
+      } as ManagedAccount
+    ]);
+
+    window.history.pushState({}, '', '/accounts');
+    render(<App />);
+
+    expect(await screen.findByText('别点我我不会')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '展开账号详情' }));
+    const messages = [...screen.getByLabelText('账号日志').querySelectorAll('.account-log-message')].map(
+      (element) => element.textContent
+    );
+
+    expect(messages).toEqual([
+      '成功进入课堂',
+      '检测到题目',
+      '提交AI自动作答',
+      '答案成功获取',
+      '正在提交答案',
+      '答案提交成功'
+    ]);
+  });
+
   it('renders account summary metrics from live account data on the accounts page', async () => {
     fetchAccountsMock.mockResolvedValue([
       {

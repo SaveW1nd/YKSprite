@@ -124,6 +124,34 @@ export const registerAccountRoutes = (
     };
   });
 
+  app.patch('/accounts/:id/active-lesson-enter-delay', async (request, reply) => {
+    const id = Number((request.params as { id: string }).id);
+    const delayMs = Number((request.body as { delayMs?: number } | undefined)?.delayMs);
+    if (!Number.isFinite(id)) {
+      reply.code(400);
+      return { message: 'Invalid account id' };
+    }
+    if (!Number.isInteger(delayMs) || delayMs < 0 || delayMs > 300_000) {
+      reply.code(400);
+      return { message: 'Invalid enter delay' };
+    }
+
+    const account = await accountMonitorManager.setActiveLessonEnterDelayMs(id, delayMs);
+    if (!account) {
+      reply.code(404);
+      return { message: 'Account not found' };
+    }
+
+    accountEventHub.publish({
+      type: 'accounts_changed',
+      accountId: id
+    });
+    return {
+      ...account,
+      ...accountMonitorManager.getSnapshot(id)
+    };
+  });
+
   app.delete('/accounts/:id', async (request, reply) => {
     const id = Number((request.params as { id: string }).id);
     if (!Number.isFinite(id)) {

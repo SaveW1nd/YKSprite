@@ -6,8 +6,7 @@ import type {
   DetectedQuestionEvent,
   ExerciseRuntimeState,
   LessonProblemSubmitPayload,
-  LessonProblemSubmitResult,
-  LessonCandidate
+  LessonProblemSubmitResult
 } from '../browser/browser-controller.js';
 import type { AssistRepository } from '../db/assist-repository.js';
 import type { RuntimeRepository } from '../db/runtime-repository.js';
@@ -22,17 +21,10 @@ import type {
 import { QuestionSolveService } from './question-solve-service.js';
 import type { AutoplayDebugTraceStore } from '../debug/autoplay-debug-trace.js';
 import { buildRuntimeStateFromPresentationSlide } from '../browser/question-runtime.js';
-import {
-  buildRainClassroomHomeUrl,
-  buildRainClassroomLessonUrl,
-  isRainClassroomHomePageUrl,
-  resolveRainClassroomPlatformByUrl
-} from '../browser/rain-classroom-platforms.js';
 
 type CollectResult = {
   attempt: AutoAnswerAttemptRecord;
   questionId: string;
-  exerciseUrl: string | null;
   runtimeState: ExerciseRuntimeState;
 };
 
@@ -43,11 +35,10 @@ type AutoAnswerServiceOptions = {
   autoAnswerRepository: AutoAnswerRepository;
   questionSolveService: QuestionSolveService;
   automationStore: AutomationStore;
-  solveConcurrency?: number;
   traceStore?: AutoplayDebugTraceStore;
 };
 
-const normalizeRuntimeQuestionType = (problemType: number, fallbackType: string) => {
+const normalizeRuntimeQuestionType = (problemType: number, defaultType: string) => {
   switch (problemType) {
     case 1:
       return 'single_choice';
@@ -58,7 +49,7 @@ const normalizeRuntimeQuestionType = (problemType: number, fallbackType: string)
     case 5:
       return 'subjective';
     default:
-      return fallbackType;
+      return defaultType;
   }
 };
 
@@ -75,9 +66,6 @@ const createInitialStatus = (): AutoAnswerStatus => ({
   failedCount: 0,
   lastError: null
 });
-
-const parseLessonIdFromUrl = (url: string | null) => url?.match(/\/lesson\/fullscreen\/v3\/([^/?#]+)/)?.[1] ?? null;
-const resolveHomeUrlFromPageUrl = (url: string | null) => buildRainClassroomHomeUrl(resolveRainClassroomPlatformByUrl(url)?.host ?? null);
 
 const buildQuestionIdFromRuntimeState = (runtimeState: ExerciseRuntimeState) => {
   const suffix = runtimeState.exerciseIndex ?? runtimeState.problemId;
@@ -115,30 +103,8 @@ const buildRuntimeStatusForQuestion = (runtimeState: ExerciseRuntimeState, curre
 
 type AutoAnswerTarget = {
   entryId: string;
-  exerciseUrl: string | null;
-  runtimeState: ExerciseRuntimeState | null;
-};
-
-const RUNTIME_RESOLUTION_ATTEMPTS = 4;
-const RUNTIME_RESOLUTION_DELAY_MS = 1000;
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const runLimited = async <T, R>(items: T[], concurrency: number, worker: (item: T, index: number) => Promise<R>) => {
-  if (items.length === 0) {
-    return [] as R[];
-  }
-
-  const results = new Array<R>(items.length);
-  let nextIndex = 0;
-  const limit = Math.max(1, concurrency);
-  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (nextIndex < items.length) {
-      const currentIndex = nextIndex++;
-      results[currentIndex] = await worker(items[currentIndex], currentIndex);
-    }
-  });
-  await Promise.all(runners);
-  return results;
+  runtimeState: ExerciseRuntimeState;
+  presentationImageUrl: string;
 };
 
 export class AutoAnswerService {
@@ -148,7 +114,6 @@ export class AutoAnswerService {
   private readonly autoAnswerRepository: AutoAnswerRepository;
   private readonly questionSolveService: QuestionSolveService;
   private readonly automationStore: AutomationStore;
-  private readonly solveConcurrency: number;
   private readonly traceStore: AutoplayDebugTraceStore | null;
 
   private status: AutoAnswerStatus = createInitialStatus();
@@ -162,7 +127,6 @@ export class AutoAnswerService {
     this.autoAnswerRepository = options.autoAnswerRepository;
     this.questionSolveService = options.questionSolveService;
     this.automationStore = options.automationStore;
-    this.solveConcurrency = options.solveConcurrency ?? 2;
     this.traceStore = options.traceStore ?? null;
   }
 
@@ -236,39 +200,43 @@ export class AutoAnswerService {
 
   private async executeRun(run: AutoAnswerRunRecord, preferredQuestion: DetectedQuestionEvent) {
     try {
-      const activeLesson = await this.ensureActiveLesson();
-      if (!activeLesson?.id) {
-        throw new Error('No active lesson available for autoplay');
+      const lessonId = preferredQuestion.lessonId;
+      if (!lessonId || !preferredQuestion.problemId) {
+        throw new Error('Detected question event is missing lesson or problem id');
+      }
+      if (!preferredQuestion.presentationId) {
+        throw new Error('Detected question event is missing presentation id');
       }
 
-      run.lessonId = activeLesson.id;
-      this.status.lessonId = activeLesson.id;
+      run.lessonId = lessonId;
+      this.status.lessonId = lessonId;
       this.autoAnswerRepository.upsertRun(run);
 
-      const currentTarget = await this.discoverCurrentTarget(activeLesson, preferredQuestion);
-      run.totalCount = currentTarget ? 1 : 0;
+      if (this.hasRecentlySubmittedProblem(lessonId, preferredQuestion.problemId)) {
+        await this.completeRunForAlreadySubmittedQuestion(run, preferredQuestion);
+        return;
+      }
+
+      const currentTarget = await this.discoverCurrentTarget(lessonId, preferredQuestion);
+      run.totalCount = 1;
       this.status.totalCount = run.totalCount;
       this.autoAnswerRepository.upsertRun(run);
 
-      const collected: CollectResult[] = [];
-      for (const entry of currentTarget ? [currentTarget] : []) {
-        if (this.stopRequested) {
-          await this.cancelRun(run);
-          return;
-        }
+      if (this.stopRequested) {
+        await this.cancelRun(run);
+        return;
+      }
 
-        this.status.currentExerciseEntryId = entry.entryId;
-        const collectedEntry = await this.collectEntry(run, entry.entryId, entry.exerciseUrl, entry.runtimeState);
-        if (collectedEntry) {
-          collected.push(collectedEntry);
-          run.collectedCount += 1;
-          this.status.collectedCount = run.collectedCount;
-          this.autoAnswerRepository.upsertRun(run);
-        } else {
-          run.failedCount += 1;
-          this.status.failedCount = run.failedCount;
-          this.autoAnswerRepository.upsertRun(run);
-        }
+      this.status.currentExerciseEntryId = currentTarget.entryId;
+      const collected = await this.collectEntry(run, currentTarget.entryId, currentTarget.runtimeState, currentTarget.presentationImageUrl);
+      if (collected) {
+        run.collectedCount = 1;
+        this.status.collectedCount = 1;
+        this.autoAnswerRepository.upsertRun(run);
+      } else {
+        run.failedCount = 1;
+        this.status.failedCount = 1;
+        this.autoAnswerRepository.upsertRun(run);
       }
 
       if (this.stopRequested) {
@@ -277,11 +245,7 @@ export class AutoAnswerService {
       }
 
       this.status.stage = 'solving';
-      const solvedByAttemptId = new Map<string, SolvedAnswer | null>();
-      await runLimited(collected, this.solveConcurrency, async (item) => {
-        const solved = await this.solveEntry(item.attempt.id, item.questionId);
-        solvedByAttemptId.set(item.attempt.id, solved);
-      });
+      const solved = collected ? await this.solveEntry(collected.attempt.id, collected.questionId) : null;
 
       if (this.stopRequested) {
         await this.cancelRun(run);
@@ -289,37 +253,30 @@ export class AutoAnswerService {
       }
 
       this.status.stage = 'submitting';
-      for (const item of collected) {
-        if (this.stopRequested) {
-          await this.cancelRun(run);
-          return;
-        }
+      if (this.stopRequested) {
+        await this.cancelRun(run);
+        return;
+      }
 
-        this.status.currentExerciseEntryId = item.attempt.exerciseEntryId;
-        const solved = solvedByAttemptId.get(item.attempt.id) ?? null;
-        if (!solved || !solved.isSubmittable) {
-          if (solved && !solved.isSubmittable) {
-            const attempt = this.autoAnswerRepository.getAttempt(item.attempt.id);
-            if (attempt) {
-              attempt.submitStatus = 'failed';
-              attempt.lastError = 'AI returned an empty answer';
-              this.autoAnswerRepository.upsertAttempt(attempt);
-            }
+      if (!collected || !solved || !solved.isSubmittable) {
+        if (collected && solved && !solved.isSubmittable) {
+          const attempt = this.autoAnswerRepository.getAttempt(collected.attempt.id);
+          if (attempt) {
+            attempt.submitStatus = 'failed';
+            attempt.lastError = 'AI returned an empty answer';
+            this.autoAnswerRepository.upsertAttempt(attempt);
           }
-          run.failedCount += 1;
-          this.status.failedCount = run.failedCount;
-          this.autoAnswerRepository.upsertRun(run);
-          continue;
         }
-
-        const submitted = await this.submitEntry(item.attempt.id, item.exerciseUrl, item.runtimeState, solved);
-        if (submitted) {
-          run.successCount += 1;
-          this.status.successCount = run.successCount;
-        } else {
-          run.failedCount += 1;
-          this.status.failedCount = run.failedCount;
-        }
+        run.failedCount = 1;
+        this.status.failedCount = 1;
+        this.autoAnswerRepository.upsertRun(run);
+      } else {
+        this.status.currentExerciseEntryId = collected.attempt.exerciseEntryId;
+        const submitted = await this.submitEntry(collected.attempt.id, collected.runtimeState, solved);
+        run.successCount = submitted ? 1 : 0;
+        run.failedCount = submitted ? 0 : 1;
+        this.status.successCount = run.successCount;
+        this.status.failedCount = run.failedCount;
         this.autoAnswerRepository.upsertRun(run);
       }
 
@@ -351,95 +308,43 @@ export class AutoAnswerService {
     this.autoAnswerRepository.upsertRun(run);
   }
 
-  private async ensureActiveLesson() {
-    const currentRuntimeState = await this.browserController.readExerciseRuntimeState();
-    if (currentRuntimeState?.lessonId) {
-      const currentPageUrl = this.browserController.getStatus().pageUrl;
-      return {
-        id: currentRuntimeState.lessonId,
-        courseTitle: '未命名课程',
-        lessonTitle: null,
-        lessonState: 'in_class',
-        href: buildRainClassroomLessonUrl(currentPageUrl, currentRuntimeState.lessonId)
-      } satisfies LessonCandidate;
-    }
-
-    const session = await this.browserController.getSessionState();
-    if (!session.hasSession) {
-      throw new Error('No saved session available for autoplay');
-    }
-
-    const currentPageUrl = this.browserController.getStatus().pageUrl;
-    const currentLessonId = parseLessonIdFromUrl(currentPageUrl);
-    if (currentLessonId) {
-      return {
-        id: currentLessonId,
-        courseTitle: '未命名课程',
-        lessonTitle: null,
-        lessonState: 'in_class',
-        href: buildRainClassroomLessonUrl(currentPageUrl, currentLessonId)
-      } satisfies LessonCandidate;
-    }
-
-    const homeUrl = resolveHomeUrlFromPageUrl(currentPageUrl);
-    if (!isRainClassroomHomePageUrl(currentPageUrl)) {
-      await this.browserController.navigate(homeUrl);
-    }
-
-    const lessons = await this.browserController.discoverLessons();
-    const lesson = lessons.find((item) => item.lessonState === 'in_class' && item.href);
-    if (lesson?.href) {
-      await this.browserController.navigate(lesson.href);
-      return lesson;
-    }
-
-    return null;
-  }
-
   private async discoverCurrentTarget(
-    activeLesson: LessonCandidate,
-    preferredQuestion: DetectedQuestionEvent | null
-  ): Promise<AutoAnswerTarget | null> {
-    if (!preferredQuestion || preferredQuestion.lessonId !== activeLesson.id) {
-      return null;
+    lessonId: string,
+    preferredQuestion: DetectedQuestionEvent
+  ): Promise<AutoAnswerTarget> {
+    if (preferredQuestion.lessonId !== lessonId) {
+      throw new Error(`Detected question belongs to another lesson: ${preferredQuestion.lessonId}`);
+    }
+    if (!this.browserController.listLessonPresentationSlides) {
+      throw new Error('Presentation fetch is not available for autoplay');
+    }
+    if (!preferredQuestion.presentationId) {
+      throw new Error('Detected question event is missing presentation id');
     }
 
-    const slides =
-      (await this.browserController.listLessonPresentationSlides?.(
-        activeLesson.id,
-        preferredQuestion.presentationId ?? null
-      )) ?? [];
+    const slides = await this.browserController.listLessonPresentationSlides(lessonId, preferredQuestion.presentationId);
     const slide = slides.find((item) => item.problemId === preferredQuestion.problemId) ?? null;
-    if (slide) {
-      const runtimeState = buildRuntimeStateFromPresentationSlide(
-        activeLesson.id,
-        slide,
-        preferredQuestion.pageIndex ?? slide.pageIndex ?? 0
-      );
-      if (runtimeState) {
-        const baseUrl = this.browserController.getStatus().pageUrl ?? activeLesson.href;
-        return {
-          entryId: `preferred-${preferredQuestion.problemId}`,
-          exerciseUrl: runtimeState.routePath && baseUrl ? new URL(runtimeState.routePath, baseUrl).toString() : null,
-          runtimeState
-        };
-      }
+    if (!slide) {
+      throw new Error(`Presentation slide was not found for problem ${preferredQuestion.problemId}`);
     }
 
-    if (preferredQuestion.routePath) {
-      const baseUrl = this.browserController.getStatus().pageUrl ?? activeLesson.href;
-      if (!baseUrl) {
-        return null;
-      }
-
-      return {
-        entryId: `preferred-${preferredQuestion.problemId}`,
-        exerciseUrl: new URL(preferredQuestion.routePath, baseUrl).toString(),
-        runtimeState: null
-      };
+    const runtimeState = buildRuntimeStateFromPresentationSlide(
+      lessonId,
+      slide,
+      preferredQuestion.pageIndex ?? slide.pageIndex ?? 0
+    );
+    if (!runtimeState) {
+      throw new Error(`Presentation slide could not build runtime state for problem ${preferredQuestion.problemId}`);
+    }
+    if (!slide.imageUrl) {
+      throw new Error(`No presentation slide image available for problem ${preferredQuestion.problemId}`);
     }
 
-    return null;
+    return {
+      entryId: `preferred-${preferredQuestion.problemId}`,
+      runtimeState,
+      presentationImageUrl: slide.imageUrl
+    };
   }
 
   private hasRecentlySubmittedProblem(lessonId: string, problemId: string | null) {
@@ -450,93 +355,65 @@ export class AutoAnswerService {
     return Boolean(this.autoAnswerRepository.findLatestSuccessfulAttemptForProblem(lessonId, problemId));
   }
 
-  private async resolveRuntimeState(
-    exerciseUrl: string | null,
-    expectedLessonId: string | null,
-    fallbackRuntimeState: ExerciseRuntimeState | null = null
-  ): Promise<ExerciseRuntimeState | null> {
-    if (fallbackRuntimeState && (!expectedLessonId || fallbackRuntimeState.lessonId === expectedLessonId)) {
-      return fallbackRuntimeState;
-    }
-
-    if (!exerciseUrl) {
-      return null;
-    }
-
-    if (this.browserController.getStatus().pageUrl !== exerciseUrl) {
-      await this.browserController.navigate(exerciseUrl);
-    }
-
-    for (let attempt = 0; attempt < RUNTIME_RESOLUTION_ATTEMPTS; attempt += 1) {
-      const runtimeState = await this.browserController.readExerciseRuntimeState();
-      if (runtimeState && (!expectedLessonId || runtimeState.lessonId === expectedLessonId)) {
-        return runtimeState;
+  private async completeRunForAlreadySubmittedQuestion(run: AutoAnswerRunRecord, preferredQuestion: DetectedQuestionEvent) {
+    const entryId = `preferred-${preferredQuestion.problemId}`;
+    run.totalCount = 1;
+    run.successCount = 1;
+    run.status = 'succeeded';
+    run.finishedAt = new Date().toISOString();
+    run.lastError = null;
+    this.status = {
+      ...this.status,
+      status: 'succeeded',
+      stage: 'idle',
+      currentExerciseEntryId: null,
+      totalCount: 1,
+      successCount: 1,
+      failedCount: 0,
+      lastError: null
+    };
+    this.traceStore?.record('submit_result', `Skipped already completed question ${entryId}`, {
+      attemptId: null,
+      exerciseEntryId: entryId,
+      problemId: preferredQuestion.problemId,
+      ok: true,
+      code: 0,
+      message: 'LOCAL_ALREADY_COMPLETED',
+      responseJson: {
+        status: 'already_completed',
+        source: 'local_history'
       }
-
-      if (expectedLessonId && this.browserController.readCurrentQuestionPresentationSlide) {
-        const presentationSlide =
-          (await this.browserController.readCurrentQuestionPresentationSlide(expectedLessonId, {
-            problemId: fallbackRuntimeState?.problemId ?? null
-          })) ?? null;
-        if (presentationSlide) {
-          const presentationRuntimeState = buildRuntimeStateFromPresentationSlide(
-            expectedLessonId,
-            presentationSlide,
-            presentationSlide.pageIndex ?? 0
-          );
-          if (presentationRuntimeState) {
-            return presentationRuntimeState;
-          }
-        }
-      }
-
-      if (attempt < RUNTIME_RESOLUTION_ATTEMPTS - 1) {
-        await delay(RUNTIME_RESOLUTION_DELAY_MS);
-      }
-    }
-
-    return null;
+    });
+    this.autoAnswerRepository.upsertRun(run);
   }
 
   private async collectEntry(
     run: AutoAnswerRunRecord,
     entryId: string,
-    exerciseUrl: string | null,
-    targetRuntimeState: ExerciseRuntimeState | null
+    runtimeState: ExerciseRuntimeState,
+    presentationImageUrl: string
   ): Promise<CollectResult | null> {
     return this.automationStore.executeTask<CollectResult | null>('auto_answer_collect', `Collect runtime question for ${entryId}`, async () => {
       try {
+        this.traceStore?.record('question_collect_started', `Collecting question for ${entryId}`, {
+          runId: run.id,
+          lessonId: run.lessonId,
+          exerciseEntryId: entryId
+        });
         this.runtimeRepository.updateExerciseProcessingState(run.lessonId, entryId, {
           analysisStatus: 'processing',
           lastError: null
         });
-        const runtimeState = await this.resolveRuntimeState(exerciseUrl, run.lessonId, targetRuntimeState);
-        if (!runtimeState) {
-          throw new Error(`No runtime state detected for ${entryId}`);
-        }
         const questionRecord = buildQuestionRecordFromRuntimeState(runtimeState, null);
         const runtimeStatus = buildRuntimeStatusForQuestion(
           runtimeState,
-          exerciseUrl ??
-            this.browserController.getStatus().pageUrl ??
-            (run.lessonId
-              ? buildRainClassroomLessonUrl(this.browserController.getStatus().pageUrl, run.lessonId)
-              : buildRainClassroomHomeUrl(this.browserController.getStatus().pageUrl)),
+          runtimeState.routePath ?? this.browserController.getStatus().pageUrl ?? '',
           null
         );
         this.runtimeRepository.saveSnapshot(runtimeStatus, [questionRecord]);
         const currentQuestion = this.runtimeRepository.getCurrentQuestion();
         if (!currentQuestion) {
           throw new Error(`No current question detected for ${entryId}`);
-        }
-        const presentationSlide = run.lessonId
-          ? (await this.browserController.readCurrentQuestionPresentationSlide?.(run.lessonId, {
-              problemId: runtimeState.problemId
-            })) ?? null
-          : null;
-        const presentationImageUrl = presentationSlide?.imageUrl ?? null;
-        if (!presentationImageUrl) {
-          throw new Error(`No presentation slide image available for ${entryId}`);
         }
         const downloaded = await downloadQuestionImage(presentationImageUrl);
         this.assistRepository.saveQuestionCapture({
@@ -547,6 +424,16 @@ export class AutoAnswerService {
           width: downloaded.width,
           height: downloaded.height,
           sha256: downloaded.sha256
+        });
+        this.traceStore?.record('question_collect_ready', `Collected question image for ${entryId}`, {
+          runId: run.id,
+          lessonId: run.lessonId,
+          exerciseEntryId: entryId,
+          questionId: currentQuestion.questionId,
+          problemId: runtimeState.problemId,
+          problemType: runtimeState.problemType,
+          imageSha256: downloaded.sha256,
+          imageMimeType: downloaded.mimeType
         });
 
         const attempt: AutoAnswerAttemptRecord = {
@@ -573,10 +460,15 @@ export class AutoAnswerService {
         return {
           attempt,
           questionId: currentQuestion.questionId,
-          exerciseUrl,
           runtimeState
         } satisfies CollectResult;
       } catch (error) {
+        this.traceStore?.record('question_collect_failed', `Question collect failed for ${entryId}`, {
+          runId: run.id,
+          lessonId: run.lessonId,
+          exerciseEntryId: entryId,
+          reason: error instanceof Error ? error.message : 'Unknown collect error'
+        });
         const failedAttempt: AutoAnswerAttemptRecord = {
           id: `attempt-${run.id}-${entryId}`,
           runId: run.id,
@@ -650,7 +542,6 @@ export class AutoAnswerService {
 
   private async submitEntry(
     attemptId: string,
-    exerciseUrl: string | null,
     runtimeState: ExerciseRuntimeState,
     solved: SolvedAnswer
   ): Promise<boolean> {
@@ -659,17 +550,13 @@ export class AutoAnswerService {
       return false;
     }
 
-    const payloadForAttempt = async (): Promise<LessonProblemSubmitPayload | 'already_completed'> => {
-      const latestRuntimeState = await this.resolveRuntimeState(exerciseUrl, this.status.lessonId, runtimeState);
-      if (!latestRuntimeState) {
-        throw new Error(`No runtime state available for ${attempt.exerciseEntryId}`);
-      }
-      if (latestRuntimeState.isComplete) {
+    const payloadForAttempt = (): LessonProblemSubmitPayload | 'already_completed' => {
+      if (runtimeState.isComplete) {
         return 'already_completed';
       }
       return {
-        problemId: latestRuntimeState.problemId || attempt.problemId,
-        problemType: latestRuntimeState.problemType || attempt.problemType,
+        problemId: runtimeState.problemId || attempt.problemId,
+        problemType: runtimeState.problemType || attempt.problemType,
         dt: Date.now(),
         result: solved.submitPayloadResult
       };
@@ -680,6 +567,18 @@ export class AutoAnswerService {
       if (payload === 'already_completed') {
         attempt.submitStatus = 'already_completed';
         attempt.submittedAt = new Date().toISOString();
+        this.traceStore?.record('submit_result', `Skipped already completed question ${attempt.exerciseEntryId}`, {
+          attemptId,
+          exerciseEntryId: attempt.exerciseEntryId,
+          questionRowId: attempt.questionRowId,
+          ok: true,
+          code: 0,
+          message: 'RUNTIME_ALREADY_COMPLETED',
+          responseJson: {
+            status: 'already_completed',
+            source: 'runtime_state'
+          }
+        });
         this.autoAnswerRepository.upsertAttempt(attempt);
         this.runtimeRepository.updateExerciseProcessingState(this.status.lessonId, attempt.exerciseEntryId, {
           analysisStatus: 'done',

@@ -1,7 +1,7 @@
 import { desc, eq } from 'drizzle-orm';
 import type { DatabaseClient } from './client.js';
-import { draftAnswersTable, ocrResultsTable, questionCapturesTable, questionOptionsTable, questionsTable, visionAnalysesTable } from './schema.js';
-import type { DraftAnswer, OcrResult, QuestionCapture, QuestionCaptureRecord, VisionAnalysis, VisionAnalysisRecord } from '../assist/assist-types.js';
+import { questionCapturesTable, questionOptionsTable, questionsTable, visionAnalysesTable } from './schema.js';
+import type { QuestionCapture, QuestionCaptureRecord, VisionAnalysis, VisionAnalysisRecord } from '../assist/assist-types.js';
 
 export class AssistRepository {
   constructor(private readonly database: DatabaseClient) {}
@@ -40,17 +40,6 @@ export class AssistRepository {
     };
   }
 
-  saveOcrResult(questionRowId: number, result: OcrResult) {
-    const insert = this.database.db.insert(ocrResultsTable).values({
-      questionRowId,
-      text: result.text,
-      sourceImage: result.sourceImage,
-      confidenceNote: result.confidenceNote,
-      createdAt: new Date().toISOString()
-    }).run();
-    return Number(insert.lastInsertRowid);
-  }
-
   saveQuestionCapture(input: QuestionCaptureRecord) {
     const insert = this.database.db.insert(questionCapturesTable).values({
       ...input,
@@ -85,49 +74,6 @@ export class AssistRepository {
     }).run();
 
     return Number(insert.lastInsertRowid);
-  }
-
-  saveDraftAnswer(questionRowId: number, ocrResultId: number | null, draft: DraftAnswer) {
-    this.database.db
-      .update(draftAnswersTable)
-      .set({ isCurrent: false })
-      .where(eq(draftAnswersTable.questionRowId, questionRowId))
-      .run();
-
-    this.database.db.insert(draftAnswersTable).values({
-      questionRowId,
-      ocrResultId,
-      draft: draft.draft,
-      reasoningSummary: draft.reasoningSummary,
-      confidence: draft.confidence,
-      generatedAt: draft.generatedAt,
-      isCurrent: true
-    }).run();
-  }
-
-  getCurrentDraftByQuestionId(questionId: string) {
-    const question = this.listQuestionRowsByQuestionId(questionId)[0];
-    if (!question) {
-      return null;
-    }
-
-    const draft = this.database.db
-      .select()
-      .from(draftAnswersTable)
-      .where(eq(draftAnswersTable.questionRowId, question.id))
-      .orderBy(desc(draftAnswersTable.generatedAt))
-      .get();
-    if (!draft) {
-      return null;
-    }
-
-    return {
-      questionId,
-      draft: draft.draft,
-      reasoningSummary: draft.reasoningSummary,
-      confidence: draft.confidence,
-      generatedAt: draft.generatedAt
-    };
   }
 
   getLatestCaptureByQuestionId(questionId: string): QuestionCapture | null {

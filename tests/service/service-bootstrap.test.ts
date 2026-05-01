@@ -19,9 +19,8 @@ import type {
 
 const runningStatus: BrowserStatus = {
   status: 'running',
-  engine: 'chromium',
-  headless: true,
-  mode: 'headless',
+  engine: 'http',
+  mode: 'http',
   startedAt: '2026-04-16T00:00:00.000Z',
   pageUrl: 'https://www.yuketang.cn/v2/web/index',
   lastError: null
@@ -29,8 +28,7 @@ const runningStatus: BrowserStatus = {
 
 const idleStatus: BrowserStatus = {
   status: 'idle',
-  engine: 'chromium',
-  headless: true,
+  engine: 'http',
   mode: null,
   startedAt: null,
   pageUrl: null,
@@ -152,7 +150,7 @@ describe('service bootstrap', () => {
       origin: 'www.yuketang.cn',
       currentUrl: 'https://www.yuketang.cn/v2/web/index',
       pageTitle: '雨课堂',
-      mode: 'headless',
+      mode: 'http',
       createdAt: '2026-04-16T00:00:00.000Z'
     }).run();
 
@@ -163,7 +161,7 @@ describe('service bootstrap', () => {
       cookieCount: 3,
       currentUrl: 'https://www.yuketang.cn/v2/web/index',
       pageTitle: '雨课堂',
-      mode: 'headless'
+      mode: 'http'
     });
     const accountWorkerController = createController({
       hasSession: true,
@@ -172,12 +170,11 @@ describe('service bootstrap', () => {
       cookieCount: 1,
       currentUrl: 'https://www.yuketang.cn/v2/web/index',
       pageTitle: '雨课堂',
-      mode: 'headless'
+      mode: 'http'
     });
 
     const app = buildServiceApp({
       databaseClient,
-      browserController: controller,
       accountMonitorControllerFactory: () => accountWorkerController.controller
     });
 
@@ -206,6 +203,7 @@ describe('service bootstrap', () => {
   });
 
   it('does nothing when there is no saved session', async () => {
+    const databaseClient = createDatabaseClient({ databasePath: ':memory:' });
     const { controller, isQuestionDetectionEnabled } = createController({
       hasSession: false,
       savedAt: null,
@@ -216,7 +214,8 @@ describe('service bootstrap', () => {
       mode: null
     });
     const app = buildServiceApp({
-      browserController: controller
+      databaseClient,
+      accountMonitorControllerFactory: () => controller
     });
 
     try {
@@ -233,6 +232,7 @@ describe('service bootstrap', () => {
       expect(autoplayMonitorStatusResponse.statusCode).toBe(404);
     } finally {
       await app.close();
+      databaseClient.close();
     }
   });
 });

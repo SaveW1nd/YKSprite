@@ -238,6 +238,11 @@ describe('accounts routes', () => {
         url: `/accounts/${accountId}/monitoring`,
         payload: { enabled: false }
       });
+      const delayResponse = await app.inject({
+        method: 'PATCH',
+        url: `/accounts/${accountId}/active-lesson-enter-delay`,
+        payload: { delayMs: 12_000 }
+      });
       const listAfterDisable = await app.inject({ method: 'GET', url: '/accounts' });
       const deleteResponse = await app.inject({
         method: 'DELETE',
@@ -250,11 +255,17 @@ describe('accounts routes', () => {
         id: accountId,
         monitoringEnabled: false
       });
+      expect(delayResponse.statusCode).toBe(200);
+      expect(delayResponse.json()).toMatchObject({
+        id: accountId,
+        activeLessonEnterDelayMs: 12_000
+      });
 
       expect(listAfterDisable.json()).toEqual([
         expect.objectContaining({
           id: accountId,
-          monitoringEnabled: false
+          monitoringEnabled: false,
+          activeLessonEnterDelayMs: 12_000
         })
       ]);
 

@@ -1403,13 +1403,25 @@ button {
   font-size: 14px;
 }
 
-.account-log-toggle {
+.account-log-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.account-log-toggle,
+.account-log-delay-button {
   min-height: 40px;
   border-radius: 14px;
   border: 1px solid rgba(216, 227, 229, 0.96);
   background: rgba(240, 253, 250, 0.7);
   color: var(--shell-accent-strong);
   font-weight: 600;
+}
+
+.account-log-delay-button {
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--shell-text);
 }
 
 .account-card-actions {
@@ -1432,6 +1444,52 @@ button {
   background: rgba(254, 242, 242, 0.96);
 }
 
+.account-action-button-primary {
+  color: #ffffff;
+  border-color: rgba(15, 118, 110, 0.92);
+  background: var(--shell-accent-strong);
+}
+
+.floating-modal-compact {
+  width: min(360px, calc(100vw - 32px));
+}
+
+.enter-delay-form {
+  display: grid;
+  gap: 16px;
+}
+
+.enter-delay-field {
+  display: grid;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.enter-delay-field span {
+  font-size: 13px;
+  color: var(--shell-muted);
+}
+
+.enter-delay-field input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid rgba(203, 213, 225, 0.96);
+  border-radius: 12px;
+  padding: 0 12px;
+  font: inherit;
+}
+
+.enter-delay-error {
+  margin: -4px 0 0;
+  color: #dc2626;
+  font-size: 13px;
+}
+
+.enter-delay-actions {
+  display: flex;
+  gap: 10px;
+}
+
 .account-log-panel {
   margin-top: 2px;
   padding-top: 10px;
@@ -1439,9 +1497,28 @@ button {
 }
 
 .account-log-panel-scrollable {
-  max-height: 240px;
-  overflow-y: auto;
-  padding-right: 4px;
+  height: 148px;
+  overflow-y: scroll;
+  padding-right: 6px;
+  scrollbar-gutter: stable;
+}
+
+.account-log-panel-scrollable::-webkit-scrollbar {
+  width: 8px;
+}
+
+.account-log-panel-scrollable::-webkit-scrollbar-track {
+  background: rgba(241, 245, 249, 0.9);
+  border-radius: 999px;
+}
+
+.account-log-panel-scrollable::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.8);
+  border-radius: 999px;
+}
+
+.account-log-panel-scrollable::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.9);
 }
 
 .account-log-list {

@@ -3,23 +3,17 @@ vi.mock('../../apps/service/src/assist/question-image-download', () => ({
   downloadQuestionImage: vi.fn()
 }));
 
-vi.mock('../../apps/service/src/assist/ocr-service', () => ({
-  extractOcrResult: vi.fn()
-}));
-
 import { AutoAnswerService } from '../../apps/service/src/auto-answer/auto-answer-service';
 import { AutoplayDebugTraceStore } from '../../apps/service/src/debug/autoplay-debug-trace';
 import { downloadQuestionImage } from '../../apps/service/src/assist/question-image-download';
-import { extractOcrResult } from '../../apps/service/src/assist/ocr-service';
 import { buildRuntimeStateFromPresentationSlide } from '../../apps/service/src/browser/question-runtime';
 
-const createCollectService = () => {
+const createCollectService = (traceStore?: AutoplayDebugTraceStore) => {
   const browserController = {
     getStatus: vi.fn(() => ({
       status: 'running',
-      engine: 'chromium',
-      headless: true,
-      mode: 'headless',
+      engine: 'http',
+      mode: 'http',
       startedAt: '2026-04-20T00:00:00.000Z',
       pageUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/20',
       lastError: null
@@ -38,8 +32,7 @@ const createCollectService = () => {
     }))
   };
   const assistRepository = {
-    saveQuestionCapture: vi.fn(),
-    saveOcrResult: vi.fn()
+    saveQuestionCapture: vi.fn()
   };
   const autoAnswerRepository = {
     upsertAttempt: vi.fn(),
@@ -54,7 +47,8 @@ const createCollectService = () => {
     questionSolveService: {} as never,
     automationStore: {
       executeTask: vi.fn(async (_type: string, _summary: string, task: () => Promise<unknown>) => task())
-    } as never
+    } as never,
+    traceStore
   });
 
   return {
@@ -67,88 +61,71 @@ const createCollectService = () => {
 };
 
 describe('AutoAnswerService', () => {
-  it('uses preferredQuestion.routePath as the only answer target when a pushed question is provided', async () => {
+  it('finishes immediately when the preferred pushed question was already submitted locally', async () => {
+    const traceStore = new AutoplayDebugTraceStore();
+    const autoAnswerRepository = {
+      upsertRun: vi.fn(),
+      findLatestSuccessfulAttemptForProblem: vi.fn(() => ({ id: 'old-attempt' }))
+    };
     const service = new AutoAnswerService({
-      browserController: {
-        getStatus: vi.fn(() => ({
-          status: 'running',
-          engine: 'chromium',
-          headless: true,
-          mode: 'headless',
-          startedAt: '2026-04-20T00:00:00.000Z',
-          pageUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1',
-          lastError: null
-        })),
-        getSessionState: vi.fn(async () => ({
-          hasSession: true,
-          savedAt: '2026-04-20T00:00:00.000Z',
-          origin: 'www.yuketang.cn',
-          cookieCount: 2,
-          currentUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1',
-          pageTitle: '雨课堂',
-          mode: 'headless'
-        })),
-        discoverLessons: vi.fn(async () => [
-          {
-            id: 'lesson-1',
-            classroomId: 'classroom-1',
-            courseTitle: '高等数学',
-            lessonTitle: '第一讲',
-            lessonState: 'in_class',
-            href: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1'
-          }
-        ]),
-        listExerciseEntries: vi.fn(async () => {
-          throw new Error('listExerciseEntries should not be used');
-        }),
-        readExerciseRuntimeState: vi.fn(async () => null)
-      } as any,
+      browserController: {} as any,
       runtimeRepository: {} as any,
       assistRepository: {} as any,
-      autoAnswerRepository: {
-        upsertRun: vi.fn(),
-        listRuns: vi.fn(() => []),
-        getRun: vi.fn(() => null),
-        listAttemptsByRunId: vi.fn(() => [])
-      } as any,
+      autoAnswerRepository: autoAnswerRepository as any,
       questionSolveService: {} as any,
-      automationStore: {
-        executeTask: vi.fn(async (_t: string, _s: string, task: () => Promise<unknown>) => task())
-      } as any
+      automationStore: {} as any,
+      traceStore
+    });
+    const run = {
+      id: 'run-1',
+      status: 'running',
+      lessonId: 'lesson-1',
+      startedAt: '2026-04-20T00:00:00.000Z',
+      finishedAt: null,
+      totalCount: 0,
+      collectedCount: 0,
+      solvedCount: 0,
+      successCount: 0,
+      failedCount: 0,
+      lastError: null
+    };
+
+    await (service as any).completeRunForAlreadySubmittedQuestion(run, {
+      lessonId: 'lesson-1',
+      problemId: 'problem-20',
+      problemType: 1,
+      exerciseIndex: '20',
+      routePath: '/lesson/fullscreen/v3/lesson-1/exercise/20',
+      isComplete: false,
+      imageUrl: null,
+      detectedAt: '2026-04-20T06:00:00.000Z'
     });
 
-    const target = await (service as any).discoverCurrentTarget(
-      {
-        id: 'lesson-1',
-        classroomId: 'classroom-1',
-        courseTitle: '高等数学',
-        lessonTitle: '第一讲',
-        lessonState: 'in_class',
-        href: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1'
-      },
-      {
-        lessonId: 'lesson-1',
-        problemId: 'problem-20',
-        problemType: 2,
-        exerciseIndex: null,
-        routePath: '/lesson/fullscreen/v3/lesson-1/subjective/18',
-        isComplete: false,
-        imageUrl: null,
-        detectedAt: '2026-04-20T06:00:00.000Z',
-        pageIndex: 20,
-        source: 'curr-slide-event'
-      }
-    );
-
-    expect(target).toEqual(
+    expect(run).toEqual(
       expect.objectContaining({
-        entryId: 'preferred-problem-20',
-        exerciseUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/subjective/18'
+        status: 'succeeded',
+        totalCount: 1,
+        successCount: 1,
+        failedCount: 0,
+        lastError: null
       })
+    );
+    expect(autoAnswerRepository.upsertRun).toHaveBeenCalledWith(run);
+    expect(traceStore.list({ afterId: 0, limit: 10 })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'submit_result',
+          data: expect.objectContaining({
+            exerciseEntryId: 'preferred-problem-20',
+            ok: true,
+            message: 'LOCAL_ALREADY_COMPLETED'
+          })
+        })
+      ])
     );
   });
 
-  it('prefers the current question slide over a mismatched pushed routePath', async () => {
+  it('builds the answer target only from the presentation slide for a pushed question', async () => {
     const slide = {
       lessonId: 'lesson-1',
       exerciseIndex: '4',
@@ -167,30 +144,22 @@ describe('AutoAnswerService', () => {
       }
     } as const;
     const runtimeState = buildRuntimeStateFromPresentationSlide('lesson-1', slide, 10);
+    const listLessonPresentationSlides = vi.fn(async () => [slide]);
     const service = new AutoAnswerService({
       browserController: {
         getStatus: vi.fn(() => ({
           status: 'running',
-          engine: 'chromium',
-          headless: true,
-          mode: 'headless',
+          engine: 'http',
+          mode: 'http',
           startedAt: '2026-04-20T00:00:00.000Z',
           pageUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1',
           lastError: null
         })),
-        listLessonPresentationSlides: vi.fn(async () => [slide]),
-        getSessionState: vi.fn(async () => ({
-          hasSession: true,
-          savedAt: '2026-04-20T00:00:00.000Z',
-          origin: 'www.yuketang.cn',
-          cookieCount: 2,
-          currentUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1',
-          pageTitle: '雨课堂',
-          mode: 'headless'
-        })),
-        discoverLessons: vi.fn(async () => []),
-        listExerciseEntries: vi.fn(async () => []),
-        readExerciseRuntimeState: vi.fn(async () => null)
+        listLessonPresentationSlides,
+        navigate: vi.fn(),
+        discoverLessons: vi.fn(),
+        listExerciseEntries: vi.fn(),
+        readExerciseRuntimeState: vi.fn()
       } as any,
       runtimeRepository: {} as any,
       assistRepository: {} as any,
@@ -207,14 +176,7 @@ describe('AutoAnswerService', () => {
     });
 
     const target = await (service as any).discoverCurrentTarget(
-      {
-        id: 'lesson-1',
-        classroomId: 'classroom-1',
-        courseTitle: '高等数学',
-        lessonTitle: '第一讲',
-        lessonState: 'in_class',
-        href: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1'
-      },
+      'lesson-1',
       {
         lessonId: 'lesson-1',
         problemId: 'problem-20',
@@ -225,20 +187,84 @@ describe('AutoAnswerService', () => {
         imageUrl: null,
         detectedAt: '2026-04-20T06:00:00.000Z',
         pageIndex: 10,
+        presentationId: 'presentation-1',
         source: 'wsapp-unlockproblem'
       }
     );
 
+    expect(listLessonPresentationSlides).toHaveBeenCalledWith('lesson-1', 'presentation-1');
     expect(target).toEqual(
       expect.objectContaining({
         entryId: 'preferred-problem-20',
-        exerciseUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/4',
-        runtimeState
+        runtimeState,
+        presentationImageUrl: 'https://example.com/problem-20.jpg'
       })
     );
   });
 
-  it('builds the answer target from the presentation slide when a pushed question has no routePath', async () => {
+  it('fails when the pushed question is missing presentation id', async () => {
+    const service = new AutoAnswerService({
+      browserController: {
+        listLessonPresentationSlides: vi.fn()
+      } as any,
+      runtimeRepository: {} as any,
+      assistRepository: {} as any,
+      autoAnswerRepository: {
+        upsertRun: vi.fn()
+      } as any,
+      questionSolveService: {} as any,
+      automationStore: {} as any
+    });
+
+    await expect(
+      (service as any).discoverCurrentTarget('lesson-1', {
+        lessonId: 'lesson-1',
+        problemId: 'problem-20',
+        problemType: 1,
+        exerciseIndex: null,
+        routePath: null,
+        isComplete: false,
+        imageUrl: null,
+        detectedAt: '2026-04-20T06:00:00.000Z',
+        pageIndex: 10,
+        presentationId: null,
+        source: 'wsapp-unlockproblem'
+      })
+    ).rejects.toThrow('Detected question event is missing presentation id');
+  });
+
+  it('fails when the presentation slide cannot be found for the pushed problem', async () => {
+    const service = new AutoAnswerService({
+      browserController: {
+        listLessonPresentationSlides: vi.fn(async () => [])
+      } as any,
+      runtimeRepository: {} as any,
+      assistRepository: {} as any,
+      autoAnswerRepository: {
+        upsertRun: vi.fn()
+      } as any,
+      questionSolveService: {} as any,
+      automationStore: {} as any
+    });
+
+    await expect(
+      (service as any).discoverCurrentTarget('lesson-1', {
+        lessonId: 'lesson-1',
+        problemId: 'problem-20',
+        problemType: 1,
+        exerciseIndex: null,
+        routePath: '/lesson/fullscreen/v3/lesson-1/exercise/5',
+        isComplete: false,
+        imageUrl: null,
+        detectedAt: '2026-04-20T06:00:00.000Z',
+        pageIndex: 10,
+        presentationId: 'presentation-1',
+        source: 'wsapp-unlockproblem'
+      })
+    ).rejects.toThrow('Presentation slide was not found for problem problem-20');
+  });
+
+  it('keeps subjective slide targeting on the presentation data path', async () => {
     const slide = {
       lessonId: 'lesson-1',
       exerciseIndex: '4',
@@ -263,26 +289,13 @@ describe('AutoAnswerService', () => {
       browserController: {
         getStatus: vi.fn(() => ({
           status: 'running',
-          engine: 'chromium',
-          headless: true,
-          mode: 'headless',
+          engine: 'http',
+          mode: 'http',
           startedAt: '2026-04-20T00:00:00.000Z',
           pageUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/4',
           lastError: null
         })),
-        listLessonPresentationSlides: vi.fn(async () => [slide]),
-        getSessionState: vi.fn(async () => ({
-          hasSession: true,
-          savedAt: '2026-04-20T00:00:00.000Z',
-          origin: 'www.yuketang.cn',
-          cookieCount: 2,
-          currentUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/4',
-          pageTitle: '雨课堂',
-          mode: 'headless'
-        })),
-        discoverLessons: vi.fn(async () => []),
-        listExerciseEntries: vi.fn(async () => []),
-        readExerciseRuntimeState: vi.fn(async () => null)
+        listLessonPresentationSlides: vi.fn(async () => [slide])
       } as any,
       runtimeRepository: {} as any,
       assistRepository: {} as any,
@@ -299,14 +312,7 @@ describe('AutoAnswerService', () => {
     });
 
     const target = await (service as any).discoverCurrentTarget(
-      {
-        id: 'lesson-1',
-        classroomId: 'classroom-1',
-        courseTitle: '高等数学',
-        lessonTitle: '第一讲',
-        lessonState: 'in_class',
-        href: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1'
-      },
+      'lesson-1',
       {
         lessonId: 'lesson-1',
         problemId: 'problem-20',
@@ -317,6 +323,7 @@ describe('AutoAnswerService', () => {
         imageUrl: 'https://example.com/problem-20.jpg',
         detectedAt: '2026-04-20T06:00:00.000Z',
         pageIndex: 11,
+        presentationId: 'presentation-1',
         source: 'presentation-slide'
       }
     );
@@ -324,37 +331,10 @@ describe('AutoAnswerService', () => {
     expect(target).toEqual(
       expect.objectContaining({
         entryId: 'preferred-problem-20',
-        exerciseUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/subjective/4',
-        runtimeState
+        runtimeState,
+        presentationImageUrl: 'https://example.com/problem-20.jpg'
       })
     );
-  });
-
-  it('fails early when no preferredQuestion is provided to the answer execution path', async () => {
-    const service = new AutoAnswerService({
-      browserController: {} as any,
-      runtimeRepository: {} as any,
-      assistRepository: {} as any,
-      autoAnswerRepository: { upsertRun: vi.fn() } as any,
-      questionSolveService: {} as any,
-      automationStore: {
-        executeTask: vi.fn(async (_t: string, _s: string, task: () => Promise<unknown>) => task())
-      } as any
-    });
-
-    await expect(
-      (service as any).discoverCurrentTarget(
-        {
-          id: 'lesson-1',
-          classroomId: 'classroom-1',
-          courseTitle: '高等数学',
-          lessonTitle: '第一讲',
-          lessonState: 'in_class',
-          href: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1'
-        },
-        null
-      )
-    ).resolves.toBeNull();
   });
 
   it('records an ai_request_failed trace when solving throws an api error', async () => {
@@ -474,7 +454,7 @@ describe('AutoAnswerService', () => {
     );
   });
 
-  it('downloads the current question image from presentation fetch without using runtimeState.imageUrl', async () => {
+  it('downloads the question image from the selected presentation slide only', async () => {
     const runtimeState = {
       lessonId: 'lesson-1',
       exerciseIndex: '20',
@@ -488,168 +468,167 @@ describe('AutoAnswerService', () => {
       isComplete: false,
       routePath: '/lesson/fullscreen/v3/lesson-1/exercise/20'
     };
-    const { service, browserController, assistRepository } = createCollectService();
-    browserController.readCurrentQuestionPresentationSlide.mockResolvedValue({
-      lessonId: 'lesson-1',
-      exerciseIndex: '20',
-      pageIndex: 20,
+    const traceStore = new AutoplayDebugTraceStore();
+    const { service, browserController, assistRepository } = createCollectService(traceStore);
+    vi.mocked(downloadQuestionImage).mockResolvedValue({
+      filePath: '/tmp/presentation-20.jpg',
+      mimeType: 'image/jpeg',
+      width: null,
+      height: null,
+      sha256: 'hash-20'
+    });
+
+    const result = await (service as any).collectEntry(
+      { id: 'run-1', lessonId: 'lesson-1' },
+      'entry-20',
+      runtimeState,
+      'https://example.com/presentation-20.jpg'
+    );
+
+    expect(result).not.toBeNull();
+    expect(downloadQuestionImage).toHaveBeenCalledWith('https://example.com/presentation-20.jpg');
+    expect(assistRepository.saveQuestionCapture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        questionRowId: 1,
+        sourceType: 'runtime_ppt',
+        filePath: '/tmp/presentation-20.jpg'
+      })
+    );
+    expect(traceStore.list({ afterId: 0, limit: 10 })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'question_collect_started',
+          data: expect.objectContaining({
+            exerciseEntryId: 'entry-20'
+          })
+        }),
+        expect.objectContaining({
+          type: 'question_collect_ready',
+          data: expect.objectContaining({
+            exerciseEntryId: 'entry-20',
+            problemId: 'problem-20',
+            imageSha256: 'hash-20'
+          })
+        })
+      ])
+    );
+    expect(browserController.readExerciseRuntimeState).not.toHaveBeenCalled();
+    expect(browserController.readCurrentQuestionPresentationSlide).not.toHaveBeenCalled();
+    expect(browserController.captureScreenshot).not.toHaveBeenCalled();
+  });
+
+  it('records submit_result when runtime state says the question is already completed', async () => {
+    const traceStore = new AutoplayDebugTraceStore();
+    const attempt = {
+      id: 'attempt-1',
+      runId: 'run-1',
+      questionRowId: 1,
+      exerciseEntryId: 'preferred-problem-20',
       problemId: 'problem-20',
       problemType: 1,
-      imageUrl: 'https://example.com/presentation-20.jpg',
-      imageThumbnailUrl: 'https://example.com/presentation-20-thumb.jpg',
-      raw: {}
+      provider: 'qwen_vl',
+      model: 'model-1',
+      answerJson: '["A"]',
+      confidence: 'high',
+      reasoningSummary: 'ok',
+      collectStatus: 'ready',
+      solveStatus: 'done',
+      submitStatus: 'pending',
+      submitAttempt: 0,
+      submitResponseJson: null,
+      submittedAt: null,
+      lastError: null
+    };
+    const browserController = {
+      getStatus: vi.fn(() => ({
+        status: 'running',
+        engine: 'http',
+        mode: 'http',
+        startedAt: '2026-04-20T00:00:00.000Z',
+        pageUrl: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/20',
+        lastError: null
+      })),
+      navigate: vi.fn(),
+      readExerciseRuntimeState: vi.fn(),
+      readCurrentQuestionPresentationSlide: vi.fn(),
+      submitLessonProblem: vi.fn()
+    };
+    const runtimeRepository = {
+      updateExerciseProcessingState: vi.fn()
+    };
+    const autoAnswerRepository = {
+      getAttempt: vi.fn(() => attempt),
+      upsertAttempt: vi.fn(),
+      findLatestSuccessfulAttemptForProblem: vi.fn(() => null)
+    };
+    const service = new AutoAnswerService({
+      browserController: browserController as any,
+      runtimeRepository: runtimeRepository as any,
+      assistRepository: {} as any,
+      autoAnswerRepository: autoAnswerRepository as any,
+      questionSolveService: {} as any,
+      automationStore: {
+        executeTask: vi.fn(async (_type: string, _summary: string, task: () => Promise<unknown>) => task())
+      } as any,
+      traceStore
     });
-    vi.mocked(downloadQuestionImage).mockResolvedValue({
-      filePath: '/tmp/presentation-20.jpg',
-      mimeType: 'image/jpeg',
-      width: null,
-      height: null,
-      sha256: 'hash-20'
-    });
+    (service as any).status.lessonId = 'lesson-1';
 
-    const result = await (service as any).collectEntry(
-      { id: 'run-1', lessonId: 'lesson-1' },
-      'entry-20',
-      'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/20',
-      runtimeState
-    );
-
-    expect(result).not.toBeNull();
-    expect(browserController.readCurrentQuestionPresentationSlide).toHaveBeenCalledWith('lesson-1', {
-      problemId: 'problem-20'
-    });
-    expect(downloadQuestionImage).toHaveBeenCalledWith('https://example.com/presentation-20.jpg');
-    expect(assistRepository.saveQuestionCapture).toHaveBeenCalledWith(
-      expect.objectContaining({
-        questionRowId: 1,
-        sourceType: 'runtime_ppt',
-        filePath: '/tmp/presentation-20.jpg'
-      })
-    );
-    expect(browserController.captureScreenshot).not.toHaveBeenCalled();
-    expect(extractOcrResult).not.toHaveBeenCalled();
-  });
-
-  it('collects the current question from the presentation slide when runtime state cannot be read from the page', async () => {
-    const { service, browserController, assistRepository } = createCollectService();
-    browserController.readExerciseRuntimeState.mockResolvedValue(null);
-    browserController.readCurrentQuestionPresentationSlide.mockResolvedValue({
-      lessonId: 'lesson-1',
-      exerciseIndex: '2',
-      pageIndex: 8,
-      problemId: 'problem-20',
-      problemType: 5,
-      imageUrl: 'https://example.com/presentation-20.jpg',
-      imageThumbnailUrl: 'https://example.com/presentation-20-thumb.jpg',
-      raw: {
-        index: 8,
-        problem: {
-          problemId: 'problem-20',
-          problemType: 5,
-          body: '主观题内容'
-        }
-      }
-    });
-    vi.mocked(downloadQuestionImage).mockResolvedValue({
-      filePath: '/tmp/presentation-20.jpg',
-      mimeType: 'image/jpeg',
-      width: null,
-      height: null,
-      sha256: 'hash-20'
-    });
-
-    const result = await (service as any).collectEntry(
-      { id: 'run-1', lessonId: 'lesson-1' },
-      'entry-20',
-      'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/subjective/3',
-      null
-    );
-
-    expect(result).not.toBeNull();
-    expect(result?.runtimeState).toEqual(
-      expect.objectContaining({
+    const submitted = await (service as any).submitEntry(
+      'attempt-1',
+      {
         lessonId: 'lesson-1',
-        exerciseIndex: '2',
-        problemId: 'problem-20',
-        problemType: 5,
-        routePath: '/lesson/fullscreen/v3/lesson-1/subjective/2'
-      })
-    );
-    expect(browserController.navigate).toHaveBeenCalledWith(
-      'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/subjective/3'
-    );
-    expect(browserController.readCurrentQuestionPresentationSlide).toHaveBeenCalledWith('lesson-1', {
-      problemId: null
-    });
-    expect(downloadQuestionImage).toHaveBeenCalledWith('https://example.com/presentation-20.jpg');
-    expect(assistRepository.saveQuestionCapture).toHaveBeenCalledWith(
-      expect.objectContaining({
-        questionRowId: 1,
-        sourceType: 'runtime_ppt',
-        filePath: '/tmp/presentation-20.jpg'
-      })
-    );
-  });
-
-  it('retries runtime resolution until the current question slide becomes available', async () => {
-    const { service, browserController } = createCollectService();
-    browserController.readExerciseRuntimeState
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValue({
-        lessonId: 'lesson-1',
-        exerciseIndex: '5',
+        exerciseIndex: '20',
         problemId: 'problem-20',
         problemType: 1,
-        pageIndex: 9,
+        pageIndex: 20,
         questionText: '题目内容',
         options: [],
-        imageUrl: 'https://example.com/runtime.jpg',
+        imageUrl: null,
         imageThumbnailUrl: null,
-        isComplete: false,
-        routePath: '/lesson/fullscreen/v3/lesson-1/exercise/5'
-      });
-    browserController.readCurrentQuestionPresentationSlide
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValue({
-        lessonId: 'lesson-1',
-        exerciseIndex: '4',
-        pageIndex: 10,
-        problemId: 'problem-20',
-        problemType: 1,
-        imageUrl: 'https://example.com/presentation-20.jpg',
-        imageThumbnailUrl: 'https://example.com/presentation-20-thumb.jpg',
-        raw: {
-          index: 10,
-          problem: {
-            problemId: 'problem-20',
-            problemType: 1,
-            body: '题目内容'
-          }
-        }
-      });
-    vi.mocked(downloadQuestionImage).mockResolvedValue({
-      filePath: '/tmp/presentation-20.jpg',
-      mimeType: 'image/jpeg',
-      width: null,
-      height: null,
-      sha256: 'hash-20'
-    });
-
-    const result = await (service as any).collectEntry(
-      { id: 'run-1', lessonId: 'lesson-1' },
-      'entry-20',
-      'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/5',
-      null
+        isComplete: true,
+        routePath: '/lesson/fullscreen/v3/lesson-1/exercise/20'
+      },
+      {
+        provider: 'qwen_vl',
+        model: 'model-1',
+        confidence: 'high',
+        reasoningSummary: 'ok',
+        answerJson: '["A"]',
+        submitPayloadResult: ['A'],
+        rawResponseJson: '{}',
+        isSubmittable: true
+      }
     );
 
-    expect(result).not.toBeNull();
-    expect(browserController.readExerciseRuntimeState).toHaveBeenCalledTimes(3);
-    expect(browserController.readCurrentQuestionPresentationSlide).toHaveBeenCalledTimes(3);
+    expect(submitted).toBe(true);
+    expect(browserController.submitLessonProblem).not.toHaveBeenCalled();
+    expect(autoAnswerRepository.upsertAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        submitStatus: 'already_completed',
+        lastError: null
+      })
+    );
+    expect(runtimeRepository.updateExerciseProcessingState).toHaveBeenCalledWith('lesson-1', 'preferred-problem-20', {
+      analysisStatus: 'done',
+      lastProcessedAt: expect.any(String),
+      lastError: null
+    });
+    expect(traceStore.list({ afterId: 0, limit: 10 })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'submit_result',
+          data: expect.objectContaining({
+            exerciseEntryId: 'preferred-problem-20',
+            ok: true,
+            message: 'RUNTIME_ALREADY_COMPLETED'
+          })
+        })
+      ])
+    );
   });
 
-  it('fails collect when the presentation slide has no image instead of falling back to screenshot', async () => {
+  it('fails collect when the selected presentation image cannot be downloaded', async () => {
     const runtimeState = {
       lessonId: 'lesson-1',
       exerciseIndex: '20',
@@ -664,31 +643,23 @@ describe('AutoAnswerService', () => {
       routePath: '/lesson/fullscreen/v3/lesson-1/exercise/20'
     };
     const { service, browserController, assistRepository, autoAnswerRepository } = createCollectService();
-    browserController.readCurrentQuestionPresentationSlide.mockResolvedValue({
-      lessonId: 'lesson-1',
-      exerciseIndex: '20',
-      pageIndex: 20,
-      problemId: 'problem-20',
-      problemType: 1,
-      imageUrl: null,
-      imageThumbnailUrl: null,
-      raw: {}
-    });
+    vi.mocked(downloadQuestionImage).mockRejectedValue(new Error('image download failed'));
 
     const result = await (service as any).collectEntry(
       { id: 'run-1', lessonId: 'lesson-1' },
       'entry-20',
-      'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1/exercise/20',
-      runtimeState
+      runtimeState,
+      'https://example.com/presentation-20.jpg'
     );
 
     expect(result).toBeNull();
+    expect(browserController.readExerciseRuntimeState).not.toHaveBeenCalled();
+    expect(browserController.readCurrentQuestionPresentationSlide).not.toHaveBeenCalled();
     expect(browserController.captureScreenshot).not.toHaveBeenCalled();
-    expect(assistRepository.saveOcrResult).not.toHaveBeenCalled();
     expect(autoAnswerRepository.upsertAttempt).toHaveBeenCalledWith(
       expect.objectContaining({
         collectStatus: 'failed',
-        lastError: 'No presentation slide image available for entry-20'
+        lastError: 'image download failed'
       })
     );
   });
