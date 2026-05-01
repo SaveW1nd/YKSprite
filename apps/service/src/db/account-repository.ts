@@ -56,6 +56,16 @@ type MarkAccountHealthyInput = {
   checkedAt: string;
 };
 
+const apiErrorReasonPatterns = [
+  'api key',
+  'AI',
+  'Qwen',
+  '接口',
+  '模型',
+  '调用失败',
+  '连接失败'
+];
+
 const buildCookiesFingerprint = (cookies: BrowserCookie[]) =>
   JSON.stringify(
     cookies.map((cookie) => ({
@@ -479,5 +489,33 @@ export class AccountRepository {
       })
       .where(eq(accountsTable.id, accountId))
       .run();
+  }
+
+  clearApiErrorStates(checkedAt: string) {
+    const rows = this.database.db
+      .select()
+      .from(accountsTable)
+      .where(eq(accountsTable.status, 'error'))
+      .all();
+    const apiErrorAccountIds = rows
+      .filter((row) => {
+        const reason = row.lastErrorReason ?? '';
+        return apiErrorReasonPatterns.some((pattern) => reason.includes(pattern));
+      })
+      .map((row) => row.id);
+
+    for (const accountId of apiErrorAccountIds) {
+      this.database.db
+        .update(accountsTable)
+        .set({
+          status: 'healthy',
+          lastErrorReason: null,
+          lastCheckedAt: checkedAt
+        })
+        .where(eq(accountsTable.id, accountId))
+        .run();
+    }
+
+    return apiErrorAccountIds.length;
   }
 }

@@ -1,7 +1,15 @@
 import type { FastifyInstance } from 'fastify';
 import type { ApiConfigService } from '../api-config/api-config-service.js';
 
-export const registerApiConfigRoutes = (app: FastifyInstance, apiConfigService: ApiConfigService) => {
+type ApiConfigRoutesOptions = {
+  onQwenRuntimeConfigChanged?: () => void | Promise<void>;
+};
+
+export const registerApiConfigRoutes = (
+  app: FastifyInstance,
+  apiConfigService: ApiConfigService,
+  options: ApiConfigRoutesOptions = {}
+) => {
   app.get('/api-config', async () => apiConfigService.getSnapshot());
 
   app.post('/api-config/qwen-keys', async (request, reply) => {
@@ -14,7 +22,9 @@ export const registerApiConfigRoutes = (app: FastifyInstance, apiConfigService: 
       return { message: 'name and apiKey are required' };
     }
 
-    return apiConfigService.addQwenKey({ name, apiKey });
+    const snapshot = apiConfigService.addQwenKey({ name, apiKey });
+    await options.onQwenRuntimeConfigChanged?.();
+    return snapshot;
   });
 
   app.patch('/api-config/qwen-keys/:id/enable', async (request, reply) => {
@@ -26,7 +36,9 @@ export const registerApiConfigRoutes = (app: FastifyInstance, apiConfigService: 
     }
 
     try {
-      return apiConfigService.enableQwenKey(id);
+      const snapshot = apiConfigService.enableQwenKey(id);
+      await options.onQwenRuntimeConfigChanged?.();
+      return snapshot;
     } catch (error) {
       reply.code(404);
       return { message: error instanceof Error ? error.message : 'Qwen API key not found' };

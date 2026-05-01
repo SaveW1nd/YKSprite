@@ -90,7 +90,14 @@ export const buildServiceApp = (options: BuildServiceAppOptions = {}) => {
     defaultAccountLoginController;
   registerHealthRoute(app);
   registerAccountRoutes(app, accountRepository, accountMonitorManager, accountLoginController, accountEventHub);
-  registerApiConfigRoutes(app, apiConfigService);
+  registerApiConfigRoutes(app, apiConfigService, {
+    onQwenRuntimeConfigChanged: () => {
+      accountRepository.clearApiErrorStates(new Date().toISOString());
+      accountEventHub.publish({
+        type: 'accounts_changed'
+      });
+    }
+  });
   registerAutomationRoutes(app, automationStore);
   registerAutoplayDebugTraceRoutes(app, debugTraceStore);
 
