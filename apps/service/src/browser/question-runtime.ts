@@ -17,6 +17,7 @@ export const buildDetectedQuestionEvent = (
   runtimeState: ExerciseRuntimeState | null,
   input?: {
     source?: 'runtime-state' | 'curr-slide-event' | 'presentation-slide' | 'wsapp-unlockproblem';
+    courseTitle?: string | null;
     pageIndex?: number | null;
     presentationId?: string | null;
   }
@@ -32,6 +33,7 @@ export const buildDetectedQuestionEvent = (
 
   return {
     lessonId: runtimeState.lessonId,
+    courseTitle: input?.courseTitle ?? null,
     problemId: runtimeState.problemId,
     problemType: runtimeState.problemType,
     exerciseIndex: runtimeState.exerciseIndex ?? null,

@@ -11,5 +11,15 @@ apps/*/.tmp/
 out
 release
 data
+**/data/
+*.db
+*.db-*
+*.db.*
+*.sqlite
+*.sqlite3
+*.log
+*.bak
 apps/service/*.db
 .env
+.env.*
+!.env.example

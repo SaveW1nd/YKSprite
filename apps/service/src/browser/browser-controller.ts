@@ -123,6 +123,7 @@ export type ExerciseRuntimeState = {
 
 export type DetectedQuestionEvent = {
   lessonId: string;
+  courseTitle?: string | null;
   problemId: string;
   problemType: number;
   exerciseIndex: string | null;

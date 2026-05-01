@@ -38,7 +38,8 @@ export class AutomationStore {
       upsertTask(task: TaskRecord): void;
       listEvents(): EventRecord[];
       addEvent(event: EventRecord): void;
-    }
+    },
+    private readonly onChanged?: () => void
   ) {
     this.taskSeq = this.nextSequence(this.repository?.listTasks().map((task) => task.id) ?? []);
     this.eventSeq = this.nextSequence(this.repository?.listEvents().map((event) => event.id) ?? []);
@@ -72,6 +73,7 @@ export class AutomationStore {
       payloadSummary
     };
     this.repository?.upsertTask(task);
+    this.notifyChanged();
     this.retryActions.set(task.id, operation);
     this.recordEvent('live', `Task ${type} started`, payloadSummary);
 
@@ -80,6 +82,7 @@ export class AutomationStore {
       task.status = 'succeeded';
       task.finishedAt = new Date().toISOString();
       this.repository?.upsertTask(task);
+      this.notifyChanged();
       this.recordEvent('info', `Task ${type} succeeded`, payloadSummary);
       return result;
     } catch (error) {
@@ -87,6 +90,7 @@ export class AutomationStore {
       task.finishedAt = new Date().toISOString();
       task.lastError = error instanceof Error ? error.message : 'Unknown automation error';
       this.repository?.upsertTask(task);
+      this.notifyChanged();
       this.recordEvent('alert', `Task ${type} failed`, task.lastError);
       throw error;
     }
@@ -109,6 +113,7 @@ export class AutomationStore {
       attempt: source.attempt + 1
     };
     this.repository?.upsertTask(retryTask);
+    this.notifyChanged();
     this.retryActions.set(retryTask.id, retryAction);
     this.recordEvent('live', `Task ${source.type} retried`, source.payloadSummary);
 
@@ -117,12 +122,14 @@ export class AutomationStore {
       retryTask.status = 'succeeded';
       retryTask.finishedAt = new Date().toISOString();
       this.repository?.upsertTask(retryTask);
+      this.notifyChanged();
       return retryTask;
     } catch (error) {
       retryTask.status = 'failed';
       retryTask.finishedAt = new Date().toISOString();
       retryTask.lastError = error instanceof Error ? error.message : 'Unknown automation error';
       this.repository?.upsertTask(retryTask);
+      this.notifyChanged();
       return retryTask;
     }
   }
@@ -135,6 +142,11 @@ export class AutomationStore {
       description,
       time: new Date().toISOString()
     });
+    this.notifyChanged();
+  }
+
+  private notifyChanged() {
+    this.onChanged?.();
   }
 
   private nextSequence(ids: string[]) {

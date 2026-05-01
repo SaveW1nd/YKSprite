@@ -3,6 +3,7 @@ import type { ApiConfigService } from '../api-config/api-config-service.js';
 
 type ApiConfigRoutesOptions = {
   onQwenRuntimeConfigChanged?: () => void | Promise<void>;
+  onApiConfigChanged?: () => void | Promise<void>;
 };
 
 export const registerApiConfigRoutes = (
@@ -22,9 +23,12 @@ export const registerApiConfigRoutes = (
       return { message: 'name and apiKey are required' };
     }
 
-    const snapshot = apiConfigService.addQwenKey({ name, apiKey });
-    await options.onQwenRuntimeConfigChanged?.();
-    return snapshot;
+    const result = await apiConfigService.addQwenKey({ name, apiKey });
+    await options.onApiConfigChanged?.();
+    if (result.check.status === 'success' && result.check.activated) {
+      await options.onQwenRuntimeConfigChanged?.();
+    }
+    return result;
   });
 
   app.patch('/api-config/qwen-keys/:id/enable', async (request, reply) => {
@@ -36,9 +40,12 @@ export const registerApiConfigRoutes = (
     }
 
     try {
-      const snapshot = apiConfigService.enableQwenKey(id);
-      await options.onQwenRuntimeConfigChanged?.();
-      return snapshot;
+      const result = await apiConfigService.enableQwenKey(id);
+      await options.onApiConfigChanged?.();
+      if (result.check.status === 'success' && result.check.activated) {
+        await options.onQwenRuntimeConfigChanged?.();
+      }
+      return result;
     } catch (error) {
       reply.code(404);
       return { message: error instanceof Error ? error.message : 'Qwen API key not found' };
@@ -54,7 +61,9 @@ export const registerApiConfigRoutes = (
     }
 
     try {
-      return apiConfigService.deleteQwenKey(id);
+      const result = apiConfigService.deleteQwenKey(id);
+      await options.onApiConfigChanged?.();
+      return result;
     } catch (error) {
       reply.code(404);
       return { message: error instanceof Error ? error.message : 'Qwen API key not found' };

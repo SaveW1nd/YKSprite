@@ -152,6 +152,8 @@ export class AccountMonitorManager {
       traceStore
     });
     const autoAnswerService = new AutoAnswerService({
+      accountId,
+      accountUserId: account.userId,
       browserController,
       runtimeRepository: this.runtimeRepository,
       assistRepository: this.assistRepository,

@@ -29,6 +29,8 @@ type CollectResult = {
 };
 
 type AutoAnswerServiceOptions = {
+  accountId?: number | null;
+  accountUserId?: string | null;
   browserController: BrowserController;
   runtimeRepository: RuntimeRepository;
   assistRepository: AssistRepository;
@@ -115,12 +117,16 @@ export class AutoAnswerService {
   private readonly questionSolveService: QuestionSolveService;
   private readonly automationStore: AutomationStore;
   private readonly traceStore: AutoplayDebugTraceStore | null;
+  private readonly accountId: number | null;
+  private readonly accountUserId: string | null;
 
   private status: AutoAnswerStatus = createInitialStatus();
   private activePromise: Promise<void> | null = null;
   private stopRequested = false;
 
   constructor(options: AutoAnswerServiceOptions) {
+    this.accountId = options.accountId ?? null;
+    this.accountUserId = options.accountUserId ?? null;
     this.browserController = options.browserController;
     this.runtimeRepository = options.runtimeRepository;
     this.assistRepository = options.assistRepository;
@@ -158,7 +164,10 @@ export class AutoAnswerService {
     const run: AutoAnswerRunRecord = {
       id: `run-${Date.now()}`,
       status: 'running',
+      accountId: this.accountId,
+      accountUserId: this.accountUserId,
       lessonId: null,
+      courseTitle: null,
       startedAt: new Date().toISOString(),
       finishedAt: null,
       totalCount: 0,
@@ -209,6 +218,7 @@ export class AutoAnswerService {
       }
 
       run.lessonId = lessonId;
+      run.courseTitle = preferredQuestion.courseTitle ?? null;
       this.status.lessonId = lessonId;
       this.autoAnswerRepository.upsertRun(run);
 
@@ -404,11 +414,11 @@ export class AutoAnswerService {
           analysisStatus: 'processing',
           lastError: null
         });
-        const questionRecord = buildQuestionRecordFromRuntimeState(runtimeState, null);
+        const questionRecord = buildQuestionRecordFromRuntimeState(runtimeState, run.courseTitle ?? null);
         const runtimeStatus = buildRuntimeStatusForQuestion(
           runtimeState,
           runtimeState.routePath ?? this.browserController.getStatus().pageUrl ?? '',
-          null
+          run.courseTitle ?? null
         );
         this.runtimeRepository.saveSnapshot(runtimeStatus, [questionRecord]);
         const currentQuestion = this.runtimeRepository.getCurrentQuestion();

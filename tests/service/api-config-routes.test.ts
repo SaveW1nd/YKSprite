@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildServiceApp } from '../../apps/service/src/app';
 import { createDatabaseClient } from '../../apps/service/src/db/client';
 import { accountsTable } from '../../apps/service/src/db/schema';
@@ -20,7 +20,10 @@ describe('api-config routes', () => {
     cleanupPaths.push(root);
     const databasePath = path.join(root, 'data', 'yksprite.db');
     const databaseClient = createDatabaseClient({ databasePath });
-    const app = buildServiceApp({ databaseClient });
+    const app = buildServiceApp({
+      databaseClient,
+      apiConfigValidationFetch: vi.fn().mockResolvedValue(new Response('{}', { status: 200 }))
+    });
 
     try {
       const createPrimaryResponse = await app.inject({
@@ -42,7 +45,7 @@ describe('api-config routes', () => {
 
       expect(createPrimaryResponse.statusCode).toBe(200);
       expect(createSecondaryResponse.statusCode).toBe(200);
-      const createdSnapshot = createSecondaryResponse.json();
+      const createdSnapshot = createSecondaryResponse.json().snapshot;
 
       const enableResponse = await app.inject({
         method: 'PATCH',
@@ -50,9 +53,15 @@ describe('api-config routes', () => {
       });
       expect(enableResponse.statusCode).toBe(200);
       expect(enableResponse.json()).toMatchObject({
-        activeKeyName: '备用 key',
-        hasActiveKey: true,
-        model: 'qwen3-vl-flash-2026-01-22'
+        snapshot: {
+          activeKeyName: '备用 key',
+          hasActiveKey: true,
+          model: 'qwen3-vl-flash-2026-01-22'
+        },
+        check: {
+          status: 'success',
+          activated: true
+        }
       });
 
       const deleteResponse = await app.inject({
@@ -104,7 +113,10 @@ describe('api-config routes', () => {
       }
     ]).run();
 
-    const app = buildServiceApp({ databaseClient });
+      const app = buildServiceApp({
+        databaseClient,
+        apiConfigValidationFetch: vi.fn().mockResolvedValue(new Response('{}', { status: 200 }))
+      });
 
     try {
       const createPrimaryResponse = await app.inject({
@@ -149,7 +161,7 @@ describe('api-config routes', () => {
           apiKey: 'qwen-test-key-2'
         }
       });
-      const secondaryKeyId = createSecondaryResponse.json().keys[1].id;
+      const secondaryKeyId = createSecondaryResponse.json().snapshot.keys[1].id;
       databaseClient.db
         .update(accountsTable)
         .set({
@@ -179,6 +191,55 @@ describe('api-config routes', () => {
           })
         ])
       );
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('rejects duplicate qwen api key names through the route', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'yksprite-api-config-'));
+    cleanupPaths.push(root);
+    const databasePath = path.join(root, 'data', 'yksprite.db');
+    const databaseClient = createDatabaseClient({ databasePath });
+    const app = buildServiceApp({
+      databaseClient,
+      apiConfigValidationFetch: vi.fn().mockResolvedValue(new Response('{}', { status: 200 }))
+    });
+
+    try {
+      await app.inject({
+        method: 'POST',
+        url: '/api-config/qwen-keys',
+        payload: {
+          name: '主账号 key',
+          apiKey: 'qwen-test-key-1'
+        }
+      });
+
+      const duplicateResponse = await app.inject({
+        method: 'POST',
+        url: '/api-config/qwen-keys',
+        payload: {
+          name: '主账号 key',
+          apiKey: 'qwen-test-key-2'
+        }
+      });
+
+      expect(duplicateResponse.statusCode).toBe(200);
+      expect(duplicateResponse.json()).toMatchObject({
+        snapshot: {
+          keys: [
+            expect.objectContaining({
+              name: '主账号 key'
+            })
+          ]
+        },
+        check: {
+          status: 'error',
+          reason: 'API 名称已存在',
+          activated: false
+        }
+      });
     } finally {
       await app.close();
     }

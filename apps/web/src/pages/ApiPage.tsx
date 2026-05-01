@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { CheckCircleIcon, PlusIcon, TrashIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import type { SectionMetric } from '../app-data';
 import {
@@ -8,21 +9,8 @@ import {
   fetchApiConfig,
   type ApiConfigSnapshot
 } from '../lib/api';
+import { formatTimestamp } from '../lib/display';
 import { usePageMetrics } from '../lib/page-metrics';
-
-const formatTimestamp = (value: string) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return date.toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-};
 
 export function ApiPage() {
   const { setSectionMetrics } = usePageMetrics();
@@ -34,6 +22,7 @@ export function ApiPage() {
   const [pendingActionId, setPendingActionId] = React.useState<number | null>(null);
   const [pageError, setPageError] = React.useState<string | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = React.useState(false);
+  const [apiNotice, setApiNotice] = React.useState<{ status: 'success' | 'error'; message: string } | null>(null);
 
   const loadSnapshot = React.useCallback(async () => {
     try {
@@ -83,19 +72,45 @@ export function ApiPage() {
     resetCreateForm();
   }, [resetCreateForm]);
 
+  React.useEffect(() => {
+    if (!apiNotice) {
+      return;
+    }
+
+    const clearTimer = window.setTimeout(() => {
+      setApiNotice(null);
+    }, 3000);
+
+    return () => {
+      window.clearTimeout(clearTimer);
+    };
+  }, [apiNotice]);
+
   const handleAdd = React.useCallback(async () => {
     setIsSubmitting(true);
     setPageError(null);
+    setApiNotice(null);
 
     try {
-      const nextSnapshot = await addQwenApiKey({
+      const result = await addQwenApiKey({
         name: name.trim(),
         apiKey: apiKey.trim()
       });
-      setSnapshot(nextSnapshot);
-      closeCreateModal();
+      setSnapshot(result.snapshot);
+      const message = result.check.status === 'success'
+        ? result.check.activated
+          ? '检测成功，已保存并启用'
+          : '检测成功，已保存'
+        : `检测失败：${result.check.reason ?? '未知错误'}`;
+      setApiNotice({ status: result.check.status, message });
+      if (result.check.status === 'success') {
+        closeCreateModal();
+      }
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : '添加 API 失败');
+      setApiNotice({
+        status: 'error',
+        message: error instanceof Error ? error.message : '添加 API 失败'
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -106,7 +121,8 @@ export function ApiPage() {
     setPageError(null);
 
     try {
-      setSnapshot(await enableQwenApiKey(id));
+      const result = await enableQwenApiKey(id);
+      setSnapshot(result.snapshot);
     } catch (error) {
       setPageError(error instanceof Error ? error.message : '启用 API 失败');
     } finally {
@@ -162,56 +178,65 @@ export function ApiPage() {
             {snapshot.keys.length === 0 ? (
               <div className="account-card account-card-empty">还没有保存任何 API key</div>
             ) : (
-              snapshot.keys.map((key) => (
-                <article key={key.id} className="account-card">
-                  <div className="account-card-header">
-                    <div className="account-card-primary">
-                      <span className="account-card-kicker">{key.isActive ? '启用中' : '未启用'}</span>
-                      <strong>{key.name}</strong>
-                      <span className="account-card-name">{key.apiKeyMasked}</span>
+              snapshot.keys.map((key) => {
+                const hasCheckError = key.lastCheckStatus === 'error';
+                const errorReason = key.lastCheckReason ?? 'API 检测失败';
+
+                return (
+                  <article key={key.id} className="account-card">
+                    <div className="account-card-header">
+                      <div className="account-card-primary">
+                        <span className="account-card-kicker">{key.isActive ? '启用中' : '未启用'}</span>
+                        <strong>{key.name}</strong>
+                        <span className="account-card-name">{key.apiKeyMasked}</span>
+                      </div>
+                      {hasCheckError ? (
+                        <span className="status-badge status-badge-error" title={errorReason}>
+                          错误
+                        </span>
+                      ) : key.isActive ? (
+                        <span className="status-badge status-badge-healthy">
+                          <CheckCircleIcon />
+                          启用
+                        </span>
+                      ) : null}
                     </div>
-                    {key.isActive ? (
-                      <span className="status-badge status-badge-healthy">
-                        <CheckCircleIcon />
+
+                    <div className="account-card-meta">
+                      <div className="account-meta-item">
+                        <span>固定模型</span>
+                        <strong>{snapshot.model}</strong>
+                      </div>
+                      <div className="account-meta-item">
+                        <span>更新时间</span>
+                        <strong>{formatTimestamp(key.updatedAt, '未记录', false)}</strong>
+                      </div>
+                    </div>
+
+                    <div className="row-actions api-key-actions">
+                      <button
+                        aria-label={`启用 ${key.name}`}
+                        className="toolbar-button"
+                        disabled={pendingActionId === key.id || key.isActive}
+                        type="button"
+                        onClick={() => void handleEnable(key.id)}
+                      >
                         启用
-                      </span>
-                    ) : null}
-                  </div>
-
-                  <div className="account-card-meta">
-                    <div className="account-meta-item">
-                      <span>固定模型</span>
-                      <strong>{snapshot.model}</strong>
+                      </button>
+                      <button
+                        aria-label={`删除 ${key.name}`}
+                        className="account-action-button account-action-button-danger api-action-button"
+                        disabled={pendingActionId === key.id}
+                        type="button"
+                        onClick={() => void handleDelete(key.id)}
+                      >
+                        <TrashIcon />
+                        删除
+                      </button>
                     </div>
-                    <div className="account-meta-item">
-                      <span>更新时间</span>
-                      <strong>{formatTimestamp(key.updatedAt)}</strong>
-                    </div>
-                  </div>
-
-                  <div className="row-actions">
-                    <button
-                      aria-label={`启用 ${key.name}`}
-                      className="toolbar-button"
-                      disabled={pendingActionId === key.id || key.isActive}
-                      type="button"
-                      onClick={() => void handleEnable(key.id)}
-                    >
-                      启用
-                    </button>
-                    <button
-                      aria-label={`删除 ${key.name}`}
-                      className="account-action-button account-action-button-danger api-action-button"
-                      disabled={pendingActionId === key.id}
-                      type="button"
-                      onClick={() => void handleDelete(key.id)}
-                    >
-                      <TrashIcon />
-                      删除
-                    </button>
-                  </div>
-                </article>
-              ))
+                  </article>
+                );
+              })
             )}
           </div>
         ) : null}
@@ -248,6 +273,7 @@ export function ApiPage() {
                 <input
                   aria-label="API 名称"
                   className="api-text-input"
+                  disabled={isSubmitting}
                   placeholder="例如：主账号 key"
                   type="text"
                   value={name}
@@ -260,6 +286,7 @@ export function ApiPage() {
                 <input
                   aria-label="API Key"
                   className="api-text-input"
+                  disabled={isSubmitting}
                   placeholder="输入新的 Qwen API key"
                   type="password"
                   value={apiKey}
@@ -268,7 +295,7 @@ export function ApiPage() {
               </label>
             </div>
 
-            <div className="row-actions api-provider-actions">
+            <div className="row-actions api-create-actions">
               <button
                 aria-label="确认添加 API"
                 className="toolbar-button-primary"
@@ -276,12 +303,25 @@ export function ApiPage() {
                 type="button"
                 onClick={() => void handleAdd()}
               >
-                {isSubmitting ? '添加中' : '添加 API'}
+                添加 API
               </button>
             </div>
           </div>
         </div>
       ) : null}
+
+      {apiNotice && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              aria-live="polite"
+              className={`account-notice ${apiNotice.status === 'success' ? 'account-notice-success' : 'account-notice-error'}`}
+              role="status"
+            >
+              {apiNotice.message}
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   );
 }

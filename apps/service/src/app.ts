@@ -10,6 +10,7 @@ import { TaskRepository } from './db/task-repository.js';
 import { ApiConfigRepository } from './api-config/api-config-repository.js';
 import { ApiConfigService } from './api-config/api-config-service.js';
 import { registerAccountRoutes } from './routes/accounts.js';
+import { registerAnswerRoutes } from './routes/answers.js';
 import { registerApiConfigRoutes } from './routes/api-config.js';
 import { registerAutomationRoutes } from './routes/automation.js';
 import { registerAutoplayDebugTraceRoutes } from './routes/autoplay-debug-trace.js';
@@ -29,6 +30,7 @@ type BuildServiceAppOptions = {
   accountLoginController?: AccountLoginController;
   visionAnalysisService?: VisionAnalysisServiceLike;
   debugTraceStore?: AutoplayDebugTraceStore;
+  apiConfigValidationFetch?: (input: string, init?: RequestInit) => Promise<Response>;
   accountMonitorControllerFactory?: (input: {
     accountId: number;
     activeLessonEnterDelayMs: number;
@@ -52,12 +54,16 @@ export const buildServiceApp = (options: BuildServiceAppOptions = {}) => {
   const assistRepository = new AssistRepository(databaseClient);
   const autoAnswerRepository = new AutoAnswerRepository(databaseClient);
   const apiConfigRepository = new ApiConfigRepository(databaseClient);
-  const apiConfigService = new ApiConfigService(apiConfigRepository);
+  const apiConfigService = new ApiConfigService(apiConfigRepository, options.apiConfigValidationFetch);
   const debugTraceStore = options.debugTraceStore ?? new AutoplayDebugTraceStore();
   const accountEventHub = new AccountEventHub();
   const visionAnalysisService =
     options.visionAnalysisService ?? new VisionAnalysisService(assistRepository, undefined, debugTraceStore, apiConfigService);
-  const automationStore = new AutomationStore(taskRepository);
+  const automationStore = new AutomationStore(taskRepository, () => {
+    accountEventHub.publish({
+      type: 'automation_changed'
+    });
+  });
   const questionSolveService = new QuestionSolveService(assistRepository, visionAnalysisService);
   let accountMonitorManager: AccountMonitorManager;
   const defaultAccountLoginController = new RainClassroomHttpLoginController({
@@ -90,7 +96,13 @@ export const buildServiceApp = (options: BuildServiceAppOptions = {}) => {
     defaultAccountLoginController;
   registerHealthRoute(app);
   registerAccountRoutes(app, accountRepository, accountMonitorManager, accountLoginController, accountEventHub);
+  registerAnswerRoutes(app, autoAnswerRepository);
   registerApiConfigRoutes(app, apiConfigService, {
+    onApiConfigChanged: () => {
+      accountEventHub.publish({
+        type: 'api_config_changed'
+      });
+    },
     onQwenRuntimeConfigChanged: () => {
       accountRepository.clearApiErrorStates(new Date().toISOString());
       accountEventHub.publish({

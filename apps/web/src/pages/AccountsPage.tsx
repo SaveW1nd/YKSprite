@@ -20,6 +20,7 @@ import {
   type AccountLoginState,
   type ManagedAccount
 } from '../lib/api';
+import { formatTimestamp as formatDisplayTimestamp } from '../lib/display';
 import { usePageMetrics } from '../lib/page-metrics';
 import type { SectionMetric } from '../app-data';
 
@@ -121,24 +122,7 @@ const createIdleLoginState = (): AccountLoginState => ({
   updatedAt: null
 });
 
-const formatTimestamp = (value: string | null) => {
-  if (!value) {
-    return '未检测';
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return date.toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  });
-};
+const formatTimestamp = (value: string | null) => formatDisplayTimestamp(value, '未检测');
 
 const sortLogsChronologically = (logs: ManagedAccount['recentLogs'] = []) =>
   [...logs].sort((left, right) => {

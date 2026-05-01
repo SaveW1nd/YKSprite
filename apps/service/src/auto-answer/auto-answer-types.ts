@@ -3,7 +3,10 @@ type AutoAnswerRunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
 export type AutoAnswerRunRecord = {
   id: string;
   status: AutoAnswerRunStatus;
+  accountId?: number | null;
+  accountUserId?: string | null;
   lessonId: string | null;
+  courseTitle?: string | null;
   startedAt: string;
   finishedAt: string | null;
   totalCount: number;

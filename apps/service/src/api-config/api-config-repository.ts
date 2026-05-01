@@ -1,7 +1,19 @@
 import { asc, eq } from 'drizzle-orm';
 import type { DatabaseClient } from '../db/client.js';
 import { qwenApiKeysTable } from '../db/schema.js';
-import type { QwenApiKeyRecord } from './api-config-types.js';
+import type { ApiCheckStatus, QwenApiKeyRecord } from './api-config-types.js';
+
+const mapQwenKeyRow = (row: typeof qwenApiKeysTable.$inferSelect): QwenApiKeyRecord => ({
+  id: row.id,
+  name: row.name,
+  apiKey: row.apiKey,
+  isActive: row.isActive,
+  lastCheckStatus: row.lastCheckStatus as ApiCheckStatus,
+  lastCheckReason: row.lastCheckReason,
+  lastCheckedAt: row.lastCheckedAt,
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt
+});
 
 export class ApiConfigRepository {
   constructor(private readonly database: DatabaseClient) {}
@@ -12,24 +24,27 @@ export class ApiConfigRepository {
       .from(qwenApiKeysTable)
       .orderBy(asc(qwenApiKeysTable.id))
       .all()
-      .map((row) => ({
-        id: row.id,
-        name: row.name,
-        apiKey: row.apiKey,
-        isActive: row.isActive,
-        createdAt: row.createdAt,
-        updatedAt: row.updatedAt
-      }));
+      .map(mapQwenKeyRow);
   }
 
-  createQwenKey(input: { name: string; apiKey: string }) {
+  createQwenKey(input: {
+    name: string;
+    apiKey: string;
+    isActive: boolean;
+    lastCheckStatus: ApiCheckStatus;
+    lastCheckReason: string | null;
+    lastCheckedAt: string;
+  }) {
     const timestamp = new Date().toISOString();
     const result = this.database.db
       .insert(qwenApiKeysTable)
       .values({
         name: input.name,
         apiKey: input.apiKey,
-        isActive: this.listQwenKeys().length === 0,
+        isActive: input.isActive,
+        lastCheckStatus: input.lastCheckStatus,
+        lastCheckReason: input.lastCheckReason,
+        lastCheckedAt: input.lastCheckedAt,
         createdAt: timestamp,
         updatedAt: timestamp
       })
@@ -44,6 +59,22 @@ export class ApiConfigRepository {
     this.database.db
       .update(qwenApiKeysTable)
       .set({ isActive: true, updatedAt: timestamp })
+      .where(eq(qwenApiKeysTable.id, id))
+      .run();
+  }
+
+  updateQwenKeyCheckResult(
+    id: number,
+    input: { status: ApiCheckStatus; reason: string | null; checkedAt: string }
+  ) {
+    this.database.db
+      .update(qwenApiKeysTable)
+      .set({
+        lastCheckStatus: input.status,
+        lastCheckReason: input.reason,
+        lastCheckedAt: input.checkedAt,
+        updatedAt: input.checkedAt
+      })
       .where(eq(qwenApiKeysTable.id, id))
       .run();
   }
@@ -63,14 +94,7 @@ export class ApiConfigRepository {
       return null;
     }
 
-    return {
-      id: row.id,
-      name: row.name,
-      apiKey: row.apiKey,
-      isActive: row.isActive,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt
-    };
+    return mapQwenKeyRow(row);
   }
 
   getActiveQwenKey(): QwenApiKeyRecord | null {
@@ -84,13 +108,6 @@ export class ApiConfigRepository {
       return null;
     }
 
-    return {
-      id: row.id,
-      name: row.name,
-      apiKey: row.apiKey,
-      isActive: row.isActive,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt
-    };
+    return mapQwenKeyRow(row);
   }
 }

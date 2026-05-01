@@ -63,11 +63,44 @@ export type AutomationEvent = {
   time: string;
 };
 
+export type AnswerHistoryItem = {
+  id: string;
+  runId: string;
+  account: {
+    id: number | null;
+    name: string;
+    userId: string | null;
+    platform: string | null;
+  };
+  courseTitle: string | null;
+  lessonId: string | null;
+  problemId: string;
+  problemType: number;
+  questionText: string | null;
+  answerJson: string | null;
+  submitStatus: string;
+  submittedAt: string | null;
+  lastError: string | null;
+  capture: {
+    id: number;
+    url: string;
+    mimeType: string;
+    width: number | null;
+    height: number | null;
+    createdAt: string;
+  } | null;
+};
+
+type ApiCheckStatus = 'unchecked' | 'success' | 'error';
+
 type QwenApiKeySnapshot = {
   id: number;
   name: string;
   apiKeyMasked: string;
   isActive: boolean;
+  lastCheckStatus: ApiCheckStatus;
+  lastCheckReason: string | null;
+  lastCheckedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -78,6 +111,23 @@ export type ApiConfigSnapshot = {
   activeKeyId: number | null;
   activeKeyName: string | null;
   keys: QwenApiKeySnapshot[];
+};
+
+type ApiConfigCheckResult = {
+  status: 'success' | 'error';
+  reason: string | null;
+  checkedAt: string;
+  activated: boolean;
+};
+
+export type ApiConfigMutationResult = {
+  snapshot: ApiConfigSnapshot;
+  check: ApiConfigCheckResult;
+};
+
+const readApiError = async (response: Response, fallback: string) => {
+  const body = await response.json().catch(() => null) as { message?: string } | null;
+  return body?.message || `${fallback}: ${response.status}`;
 };
 
 export const fetchAccounts = async (): Promise<ManagedAccount[]> => {
@@ -101,6 +151,41 @@ export const subscribeAccountEvents = (onChange: () => void): (() => void) => {
 
   return () => {
     source.removeEventListener('accounts_changed', handleChange);
+    source.close();
+  };
+};
+
+export const subscribeDashboardEvents = (onChange: () => void): (() => void) => {
+  if (typeof EventSource === 'undefined') {
+    return () => undefined;
+  }
+
+  const source = new EventSource('/api/accounts/stream');
+  const eventTypes = ['accounts_changed', 'automation_changed', 'api_config_changed'] as const;
+  let refreshTimer: ReturnType<typeof window.setTimeout> | null = null;
+
+  const handleChange = () => {
+    if (refreshTimer) {
+      window.clearTimeout(refreshTimer);
+    }
+    refreshTimer = window.setTimeout(() => {
+      refreshTimer = null;
+      onChange();
+    }, 120);
+  };
+
+  eventTypes.forEach((eventType) => {
+    source.addEventListener(eventType, handleChange);
+  });
+
+  return () => {
+    if (refreshTimer) {
+      window.clearTimeout(refreshTimer);
+      refreshTimer = null;
+    }
+    eventTypes.forEach((eventType) => {
+      source.removeEventListener(eventType, handleChange);
+    });
     source.close();
   };
 };
@@ -203,6 +288,15 @@ export const fetchAutomationEvents = async (): Promise<AutomationEvent[]> => {
   return (await response.json()) as AutomationEvent[];
 };
 
+export const fetchAnswerHistory = async (): Promise<AnswerHistoryItem[]> => {
+  const response = await fetch('/api/answers');
+  if (!response.ok) {
+    throw new Error(`Failed to fetch answer history: ${response.status}`);
+  }
+
+  return (await response.json()) as AnswerHistoryItem[];
+};
+
 export const fetchApiConfig = async (): Promise<ApiConfigSnapshot> => {
   const response = await fetch('/api/api-config');
   if (!response.ok) {
@@ -212,7 +306,7 @@ export const fetchApiConfig = async (): Promise<ApiConfigSnapshot> => {
   return (await response.json()) as ApiConfigSnapshot;
 };
 
-export const addQwenApiKey = async (payload: { name: string; apiKey: string }): Promise<ApiConfigSnapshot> => {
+export const addQwenApiKey = async (payload: { name: string; apiKey: string }): Promise<ApiConfigMutationResult> => {
   const response = await fetch('/api/api-config/qwen-keys', {
     method: 'POST',
     headers: {
@@ -221,21 +315,21 @@ export const addQwenApiKey = async (payload: { name: string; apiKey: string }): 
     body: JSON.stringify(payload)
   });
   if (!response.ok) {
-    throw new Error(`Failed to add qwen api key: ${response.status}`);
+    throw new Error(await readApiError(response, 'Failed to add qwen api key'));
   }
 
-  return (await response.json()) as ApiConfigSnapshot;
+  return (await response.json()) as ApiConfigMutationResult;
 };
 
-export const enableQwenApiKey = async (id: number): Promise<ApiConfigSnapshot> => {
+export const enableQwenApiKey = async (id: number): Promise<ApiConfigMutationResult> => {
   const response = await fetch(`/api/api-config/qwen-keys/${id}/enable`, {
     method: 'PATCH',
   });
   if (!response.ok) {
-    throw new Error(`Failed to enable qwen api key: ${response.status}`);
+    throw new Error(await readApiError(response, 'Failed to enable qwen api key'));
   }
 
-  return (await response.json()) as ApiConfigSnapshot;
+  return (await response.json()) as ApiConfigMutationResult;
 };
 
 export const deleteQwenApiKey = async (id: number): Promise<ApiConfigSnapshot> => {

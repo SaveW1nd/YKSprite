@@ -1,6 +1,7 @@
 {
   "name": "yksprite",
   "private": true,
+  "license": "MIT",
   "packageManager": "pnpm@10.8.0",
   "scripts": {
     "start:service": "node apps/service/dist/index.js",

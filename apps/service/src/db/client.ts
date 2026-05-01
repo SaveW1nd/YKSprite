@@ -28,6 +28,9 @@ const applyMigrations = (sqlite: Database.Database) => {
       name TEXT NOT NULL,
       api_key TEXT NOT NULL,
       is_active INTEGER NOT NULL DEFAULT 0,
+      last_check_status TEXT NOT NULL DEFAULT 'unchecked',
+      last_check_reason TEXT,
+      last_checked_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -47,7 +50,10 @@ const applyMigrations = (sqlite: Database.Database) => {
     CREATE TABLE IF NOT EXISTS auto_answer_runs (
       id TEXT PRIMARY KEY NOT NULL,
       status TEXT NOT NULL,
+      account_id INTEGER,
+      account_user_id TEXT,
       lesson_id TEXT,
+      course_title TEXT,
       started_at TEXT NOT NULL,
       finished_at TEXT,
       total_count INTEGER NOT NULL,
@@ -191,25 +197,33 @@ const applyMigrations = (sqlite: Database.Database) => {
     );
   `);
 
-  const ensureColumn = (name: string, definition: string) => {
+  const ensureColumn = (table: string, name: string, definition: string) => {
     try {
-      sqlite.exec(`ALTER TABLE accounts ADD COLUMN ${name} ${definition};`);
+      sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition};`);
     } catch {
       // Column already exists in upgraded databases.
     }
   };
 
-  ensureColumn('user_id', 'TEXT');
-  ensureColumn('name', 'TEXT');
-  ensureColumn('monitoring_enabled', 'INTEGER NOT NULL DEFAULT 1');
-  ensureColumn('active_lesson_enter_delay_ms', 'INTEGER NOT NULL DEFAULT 0');
-  ensureColumn('cookies_json', 'TEXT');
-  ensureColumn('cookie_count', 'INTEGER');
-  ensureColumn('session_saved_at', 'TEXT');
-  ensureColumn('origin', 'TEXT');
-  ensureColumn('current_url', 'TEXT');
-  ensureColumn('page_title', 'TEXT');
-  ensureColumn('mode', 'TEXT');
+  ensureColumn('qwen_api_keys', 'last_check_status', "TEXT NOT NULL DEFAULT 'unchecked'");
+  ensureColumn('qwen_api_keys', 'last_check_reason', 'TEXT');
+  ensureColumn('qwen_api_keys', 'last_checked_at', 'TEXT');
+
+  ensureColumn('auto_answer_runs', 'account_id', 'INTEGER');
+  ensureColumn('auto_answer_runs', 'account_user_id', 'TEXT');
+  ensureColumn('auto_answer_runs', 'course_title', 'TEXT');
+
+  ensureColumn('accounts', 'user_id', 'TEXT');
+  ensureColumn('accounts', 'name', 'TEXT');
+  ensureColumn('accounts', 'monitoring_enabled', 'INTEGER NOT NULL DEFAULT 1');
+  ensureColumn('accounts', 'active_lesson_enter_delay_ms', 'INTEGER NOT NULL DEFAULT 0');
+  ensureColumn('accounts', 'cookies_json', 'TEXT');
+  ensureColumn('accounts', 'cookie_count', 'INTEGER');
+  ensureColumn('accounts', 'session_saved_at', 'TEXT');
+  ensureColumn('accounts', 'origin', 'TEXT');
+  ensureColumn('accounts', 'current_url', 'TEXT');
+  ensureColumn('accounts', 'page_title', 'TEXT');
+  ensureColumn('accounts', 'mode', 'TEXT');
 };
 
 export const createDatabaseClient = (options: DatabaseClientOptions = {}) => {

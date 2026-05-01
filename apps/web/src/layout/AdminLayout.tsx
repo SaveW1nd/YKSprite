@@ -26,38 +26,6 @@ const matchNavigationItem = (pathname: string): NavItem => {
   return item ?? navigationItems[1];
 };
 
-function BrandLogo() {
-  return (
-    <svg aria-hidden="true" className="brand-mark-svg" viewBox="0 0 64 64">
-      <defs>
-        <linearGradient id="brand-bg" x1="0%" x2="100%" y1="0%" y2="100%">
-          <stop offset="0%" stopColor="#203a89" />
-          <stop offset="100%" stopColor="#13244f" />
-        </linearGradient>
-        <linearGradient id="brand-accent" x1="0%" x2="100%" y1="0%" y2="100%">
-          <stop offset="0%" stopColor="#81ffe2" />
-          <stop offset="55%" stopColor="#33d8ca" />
-          <stop offset="100%" stopColor="#1b88ff" />
-        </linearGradient>
-      </defs>
-      <rect width="64" height="64" rx="18" fill="url(#brand-bg)" />
-      <path
-        d="M16 22.5 28.5 15h19L39 24.5H26.5l-3.2 2 6.2 3.6h8.8c4.6 0 8.7 3.8 8.7 8.7 0 2.8-1.4 5.4-3.7 6.9L31 53H12.6L22 43.5h12.4l4.2-2.6-6.1-3.5h-8.3c-5.2 0-9.2-4.2-9.2-9.1 0-2.4 1-4.8 3-5.8Z"
-        fill="url(#brand-accent)"
-      />
-      <path
-        d="m17.2 41.8 9.2-9.1h9l11.4-11.4"
-        fill="none"
-        opacity="0.9"
-        stroke="#9cffea"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="4.4"
-      />
-    </svg>
-  );
-}
-
 export function AdminLayout() {
   const location = useLocation();
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false);
@@ -176,7 +144,7 @@ export function AdminLayout() {
         <div className={cx('sidebar-header', sidebarCollapsed && 'sidebar-header-collapsed')}>
           <div className="sidebar-logo" aria-hidden="true">
             <div className="brand-mark">
-              <BrandLogo />
+              <img alt="" className="brand-mark-svg" src="/favicon.png" />
             </div>
           </div>
           <div
@@ -287,14 +255,23 @@ export function AdminLayout() {
         <main className="page-stage">
           <div className="ambient-glow" aria-hidden="true" />
 
-          <section className="metric-row" aria-label="页面摘要">
-            {metrics.map((metric) => (
-              <article key={metric.label} className="metric-card">
-                <span>{metric.label}</span>
-                <strong>{metric.value}</strong>
-                <small>{metric.hint}</small>
-              </article>
-            ))}
+          <section className={`metric-row metric-row-${activeSectionId}`} aria-label="页面摘要">
+            {metrics.map((metric) => {
+              const MetricIcon = metric.icon;
+
+              return (
+                <article key={metric.label} className="metric-card">
+                  <div className="metric-card-icon" aria-hidden="true">
+                    {MetricIcon ? <MetricIcon /> : null}
+                  </div>
+                  <div className="metric-card-copy">
+                    <span>{metric.label}</span>
+                    <strong>{metric.value}</strong>
+                    <small>{metric.hint}</small>
+                  </div>
+                </article>
+              );
+            })}
           </section>
 
           <PageMetricsContext.Provider value={{ setSectionMetrics }}>

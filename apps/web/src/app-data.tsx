@@ -21,6 +21,7 @@ export type SectionMetric = {
   label: string;
   value: string;
   hint: string;
+  icon?: ComponentType<SVGProps<SVGSVGElement>>;
 };
 
 export const navigationItems: NavItem[] = [

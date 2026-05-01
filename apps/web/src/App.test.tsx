@@ -7,8 +7,10 @@ fetchAccountsMock.mockResolvedValue([]);
 const fetchAutomationTasksMock = vi.fn<() => Promise<any[]>>();
 const fetchAutomationEventsMock = vi.fn<() => Promise<any[]>>();
 const fetchApiConfigMock = vi.fn<() => Promise<any>>();
+const fetchAnswerHistoryMock = vi.fn<() => Promise<any[]>>();
 fetchAutomationTasksMock.mockResolvedValue([]);
 fetchAutomationEventsMock.mockResolvedValue([]);
+fetchAnswerHistoryMock.mockResolvedValue([]);
 fetchApiConfigMock.mockResolvedValue({
   model: 'qwen3-vl-flash-2026-01-22',
   hasActiveKey: true,
@@ -23,6 +25,7 @@ vi.mock('./lib/api', async () => {
     fetchAccounts: () => fetchAccountsMock(),
     fetchAutomationTasks: () => fetchAutomationTasksMock(),
     fetchAutomationEvents: () => fetchAutomationEventsMock(),
+    fetchAnswerHistory: () => fetchAnswerHistoryMock(),
     fetchApiConfig: () => fetchApiConfigMock()
   };
 });
@@ -37,6 +40,8 @@ describe('App shell', () => {
     fetchAutomationTasksMock.mockResolvedValue([]);
     fetchAutomationEventsMock.mockReset();
     fetchAutomationEventsMock.mockResolvedValue([]);
+    fetchAnswerHistoryMock.mockReset();
+    fetchAnswerHistoryMock.mockResolvedValue([]);
     fetchApiConfigMock.mockReset();
     fetchApiConfigMock.mockResolvedValue({
       model: 'qwen3-vl-flash-2026-01-22',
@@ -46,6 +51,8 @@ describe('App shell', () => {
       keys: []
     });
     window.history.replaceState({}, '', '/');
+    window.localStorage.clear();
+    document.documentElement.classList.remove('dark');
     cleanup();
   });
 
@@ -70,6 +77,22 @@ describe('App shell', () => {
     expect(container.querySelector('.sidebar-bottom')).toBeInTheDocument();
   });
 
+  it('toggles and persists dark mode from the sidebar action', async () => {
+    render(<App />);
+    await screen.findByText('暂无账号数据');
+
+    fireEvent.click(screen.getByRole('button', { name: '深色模式' }));
+
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
+    expect(window.localStorage.getItem('theme')).toBe('dark');
+    expect(screen.getByRole('button', { name: '浅色模式' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '浅色模式' }));
+
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
+    expect(window.localStorage.getItem('theme')).toBe('light');
+  });
+
   it('collapses the sidebar brand down to the centered logo only', async () => {
     const { container } = render(<App />);
     await screen.findByText('暂无账号数据');
@@ -84,14 +107,14 @@ describe('App shell', () => {
     expect(screen.getByRole('button', { name: '展开侧边栏' })).toBeInTheDocument();
   });
 
-  it('renders a different page when the route changes', () => {
+  it('renders a different page when the route changes', async () => {
     window.history.pushState({}, '', '/answers');
 
     render(<App />);
 
-    expect(screen.getByRole('heading', { name: '答题情况' })).toBeInTheDocument();
-    expect(screen.getAllByText('聚合查看答题结果、命中率和异常记录。')).toHaveLength(2);
-    expect(screen.getByText('成功率趋势')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '答题记录' })).toBeInTheDocument();
+    expect(screen.getByText('查看截图、提交答案和账号归属。')).toBeInTheDocument();
+    expect(screen.getByText('暂无答题记录')).toBeInTheDocument();
   });
 
   it('renders the monitoring page when the route changes', async () => {
@@ -159,10 +182,12 @@ describe('App shell', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { name: '状态流' })).toBeInTheDocument();
-    expect(
-      screen.getAllByText((_, element) => element?.textContent?.includes('lessonId=lesson-1') ?? false)
-    ).not.toHaveLength(0);
-    expect(screen.getAllByText(/Task auto_answer_run started/)).not.toHaveLength(0);
+    await waitFor(() => {
+      expect(
+        screen.getAllByText((_, element) => element?.textContent?.includes('lessonId=lesson-1') ?? false)
+      ).not.toHaveLength(0);
+      expect(screen.getAllByText(/Task auto_answer_run started/)).not.toHaveLength(0);
+    });
     expect(screen.getAllByText(/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}/)).not.toHaveLength(0);
   });
 

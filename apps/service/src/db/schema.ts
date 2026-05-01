@@ -5,6 +5,9 @@ export const qwenApiKeysTable = sqliteTable('qwen_api_keys', {
   name: text('name').notNull(),
   apiKey: text('api_key').notNull(),
   isActive: integer('is_active', { mode: 'boolean' }).notNull().default(false),
+  lastCheckStatus: text('last_check_status').notNull().default('unchecked'),
+  lastCheckReason: text('last_check_reason'),
+  lastCheckedAt: text('last_checked_at'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull()
 });
@@ -24,7 +27,10 @@ export const tasksTable = sqliteTable('tasks', {
 export const autoAnswerRunsTable = sqliteTable('auto_answer_runs', {
   id: text('id').primaryKey(),
   status: text('status').notNull(),
+  accountId: integer('account_id'),
+  accountUserId: text('account_user_id'),
   lessonId: text('lesson_id'),
+  courseTitle: text('course_title'),
   startedAt: text('started_at').notNull(),
   finishedAt: text('finished_at'),
   totalCount: integer('total_count').notNull(),

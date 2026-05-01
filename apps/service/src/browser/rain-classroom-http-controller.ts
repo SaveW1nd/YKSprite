@@ -79,6 +79,14 @@ const findLatestProblemEvent = (timeline: unknown[]) =>
     .reverse()
     .find((event): event is TimelineProblemEvent => isObject(event) && event.type === 'problem' && Boolean(event.pres || event.prob)) ?? null;
 
+const normalizeLessonDisplayTitle = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : null);
+
+const resolveLessonCourseTitle = (lesson: { classroomName?: string; courseName?: string }) =>
+  normalizeLessonDisplayTitle(lesson.courseName) ?? normalizeLessonDisplayTitle(lesson.classroomName) ?? '未知课程';
+
+const resolveLessonTitle = (lesson: { classroomName?: string; courseName?: string }) =>
+  normalizeLessonDisplayTitle(lesson.classroomName) ?? normalizeLessonDisplayTitle(lesson.courseName) ?? null;
+
 export class RainClassroomHttpController implements BrowserController {
   private readonly sessionStore: SessionStoreLike;
   private readonly fetchFn: typeof fetch;
@@ -89,6 +97,7 @@ export class RainClassroomHttpController implements BrowserController {
   private session: StoredSession | null = null;
   private client: RainClassroomHttpClient | null = null;
   private currentLessonId: string | null = null;
+  private currentCourseTitle: string | null = null;
   private currentPresentationId: string | null = null;
   private currentSlideIndex: number | null = null;
   private currentTimeline: unknown[] = [];
@@ -232,8 +241,8 @@ export class RainClassroomHttpController implements BrowserController {
       .map((lesson: { classroomId?: string; classroomName?: string; courseName?: string; lessonId: string }) => ({
         id: lesson.lessonId,
         classroomId: lesson.classroomId ?? null,
-        courseTitle: lesson.courseName ?? lesson.classroomName ?? '未命名课程',
-        lessonTitle: lesson.classroomName ?? lesson.courseName ?? null,
+        courseTitle: resolveLessonCourseTitle(lesson),
+        lessonTitle: resolveLessonTitle(lesson),
         lessonState: 'in_class',
         href: `${this.resolveOriginUrl()}/lesson/fullscreen/v3/${lesson.lessonId}`
       } satisfies LessonCandidate));
@@ -393,6 +402,7 @@ export class RainClassroomHttpController implements BrowserController {
     if (!activeLesson) {
       return;
     }
+    this.currentCourseTitle = activeLesson.courseTitle;
     await this.prepareLesson(activeLesson.id);
     await this.dispatchCurrentQuestion();
     await this.startQuestionSocket(activeLesson.id);
@@ -575,6 +585,7 @@ export class RainClassroomHttpController implements BrowserController {
     if (record.op === 'lessonfinished') {
       const event = isObject(record.event) ? record.event : {};
       this.currentLessonId = null;
+      this.currentCourseTitle = null;
       this.detectedClassroomLessonId = null;
       this.pendingClassroomEntryLessonId = null;
       this.stopQuestionSocket();
@@ -623,6 +634,7 @@ export class RainClassroomHttpController implements BrowserController {
     const runtimeState = slide ? buildRuntimeStateFromPresentationSlide(lessonId, slide, pageIndex ?? slide.pageIndex ?? 0) : null;
     await this.dispatchDetectedQuestionEvent(buildDetectedQuestionEvent(runtimeState, {
       source,
+      courseTitle: this.currentCourseTitle,
       pageIndex: pageIndex ?? runtimeState?.pageIndex ?? null,
       presentationId
     }));
@@ -682,6 +694,7 @@ export class RainClassroomHttpController implements BrowserController {
       }
       this.pendingClassroomEntryLessonId = null;
       this.detectedClassroomLessonId = activeLesson.id;
+      this.currentCourseTitle = activeLesson.courseTitle;
       if (this.questionDetectionEnabled) {
         await this.prepareLesson(activeLesson.id);
         await this.dispatchCurrentQuestion();
@@ -704,6 +717,7 @@ export class RainClassroomHttpController implements BrowserController {
     }
     const endedLessonId = this.detectedClassroomLessonId;
     this.detectedClassroomLessonId = null;
+    this.currentCourseTitle = null;
     await this.dispatchDetectedClassroomEvent({
       lessonId: endedLessonId,
       eventType: 'lesson_finished',

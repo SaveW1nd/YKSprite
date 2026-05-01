@@ -1,5 +1,5 @@
-type AccountStreamEvent = {
-  type: 'accounts_changed';
+export type AccountStreamEvent = {
+  type: 'accounts_changed' | 'automation_changed' | 'api_config_changed';
   accountId?: number;
 };
 
