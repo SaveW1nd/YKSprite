@@ -24,7 +24,7 @@ type RawVisionAnalysis =
       id?: number;
       questionId: string;
       captureId: number;
-      provider: 'openai' | 'qwen_vl';
+      provider: 'qwen_vl';
       model: string;
       promptVersion: string;
       question_type?: 'single_choice' | 'multiple_choice' | 'fill_in' | 'subjective';
@@ -89,12 +89,12 @@ const normalizeOptions = (options: Array<{ key: string; value: string }> | strin
 const normalizeConfidence = (confidence: string): 'low' | 'medium' | 'high' =>
   confidence === 'high' || confidence === 'medium' ? confidence : 'low';
 
-export const normalizeVisionAnalysis = (
+const normalizeVisionAnalysis = (
   raw: RawVisionAnalysis,
   context: {
     questionId: string;
     captureId: number;
-    provider: 'openai' | 'qwen_vl';
+    provider: 'qwen_vl';
     model: string;
     promptVersion: string;
   }

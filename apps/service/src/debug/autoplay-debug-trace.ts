@@ -1,4 +1,4 @@
-export type AutoplayDebugTraceEventType =
+type AutoplayDebugTraceEventType =
   | 'classroom_detected'
   | 'classroom_entered'
   | 'lesson_checkin'
@@ -16,7 +16,7 @@ export type AutoplayDebugTraceEventType =
   | 'submit_payload'
   | 'submit_result';
 
-export type AutoplayDebugTraceEvent = {
+type AutoplayDebugTraceEvent = {
   id: number;
   at: string;
   type: AutoplayDebugTraceEventType;

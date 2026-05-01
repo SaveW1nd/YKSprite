@@ -3,24 +3,23 @@ import { AutoAnswerService } from '../auto-answer/auto-answer-service.js';
 import { AutoplayMonitorService } from '../auto-answer/autoplay-monitor-service.js';
 import { QuestionSolveService } from '../auto-answer/question-solve-service.js';
 import { AutomationStore } from '../automation/automation-store.js';
-import type { BrowserController } from '../browser/browser-controller.js';
+import type { BrowserController, StoredSession } from '../browser/browser-controller.js';
 import { RainClassroomHttpController } from '../browser/rain-classroom-http-controller.js';
 import { AccountRepository } from '../db/account-repository.js';
-import type { StoredSession } from '../browser/session-store.js';
 import { AssistRepository } from '../db/assist-repository.js';
 import { RuntimeRepository } from '../db/runtime-repository.js';
 import { AutoplayDebugTraceStore } from '../debug/autoplay-debug-trace.js';
 import { isRainClassroomHomePageUrl } from '../browser/rain-classroom-platforms.js';
 import { normalizeAiErrorMessage } from '../assist/ai-error-message.js';
 
-export type AccountMonitorLog = {
+type AccountMonitorLog = {
   id: number;
   at: string;
   type: string;
   message: string;
 };
 
-export type ActiveClassroomContext = {
+type ActiveClassroomContext = {
   lessonId: string;
   classroomId: string | null;
   courseTitle: string;
@@ -29,7 +28,7 @@ export type ActiveClassroomContext = {
   detectedAt: string;
 };
 
-export type AccountMonitorSnapshot = {
+type AccountMonitorSnapshot = {
   accountId: number;
   monitorStatus: 'idle' | 'starting' | 'monitoring' | 'error';
   monitorUpdatedAt: string | null;
@@ -326,7 +325,7 @@ export class AccountMonitorManager {
       } else if (type === 'ai_request_failed') {
         const provider = typeof data.provider === 'string' ? data.provider : null;
         const reason = typeof data.reason === 'string' ? data.reason : message;
-        const displayReason = normalizeAiErrorMessage(reason, provider === 'openai' || provider === 'qwen_vl' ? provider : null);
+        const displayReason = normalizeAiErrorMessage(reason, provider === 'qwen_vl' ? provider : null);
         this.accountRepository.markAccountError(worker.snapshot.accountId, displayReason);
         this.appendLog(worker, type, displayReason || 'AI 调用失败');
       } else if (type === 'ai_response') {

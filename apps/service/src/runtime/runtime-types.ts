@@ -1,4 +1,4 @@
-export type LessonState = 'idle' | 'in_class' | 'waiting' | 'ended';
+type LessonState = 'idle' | 'in_class' | 'waiting' | 'ended';
 
 export type RuntimeStatus = {
   connected: boolean;
@@ -12,7 +12,7 @@ export type RuntimeStatus = {
   lastScannedAt: string | null;
 };
 
-export type QuestionOption = {
+type QuestionOption = {
   key: string;
   value: string;
 };

@@ -1,7 +1,7 @@
 import type { AutoAnswerService } from './auto-answer-service.js';
 import type { BrowserController, DetectedClassroomEvent, DetectedQuestionEvent } from '../browser/browser-controller.js';
 
-export type AutoplayMonitorStatus = {
+type AutoplayMonitorStatus = {
   enabled: boolean;
   lastStartedAt: string | null;
   lastEventAt: string | null;

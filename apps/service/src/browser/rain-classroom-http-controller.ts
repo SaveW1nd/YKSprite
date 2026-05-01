@@ -14,9 +14,9 @@ import type {
   LessonProblemSubmitResult,
   PageSnapshot,
   ScreenshotPayload,
-  SessionState
+  SessionState,
+  StoredSession
 } from './browser-controller.js';
-import type { StoredSession } from './session-store.js';
 import { buildDetectedQuestionEvent, buildRuntimeStateFromPresentationSlide, parseLessonTarget, parseOptionalNumber, parseOptionalString } from './question-runtime.js';
 import { buildRainClassroomHomeUrl, getRainClassroomPlatform, resolveRainClassroomPlatformByOrigin, resolveRainClassroomPlatformByUrl } from './rain-classroom-platforms.js';
 import { buildCookieHeader, extractCookieValue, RainClassroomHttpClient } from './rain-classroom-http-client.js';

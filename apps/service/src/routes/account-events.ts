@@ -1,4 +1,4 @@
-export type AccountStreamEvent = {
+type AccountStreamEvent = {
   type: 'accounts_changed';
   accountId?: number;
 };

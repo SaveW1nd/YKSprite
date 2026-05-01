@@ -40,7 +40,7 @@ export type AccountLoginState = {
   updatedAt: string | null;
 };
 
-export type StartAccountLoginInput = {
+type StartAccountLoginInput = {
   platform: string;
 };
 
@@ -63,7 +63,7 @@ export type AutomationEvent = {
   time: string;
 };
 
-export type QwenApiKeySnapshot = {
+type QwenApiKeySnapshot = {
   id: number;
   name: string;
   apiKeyMasked: string;

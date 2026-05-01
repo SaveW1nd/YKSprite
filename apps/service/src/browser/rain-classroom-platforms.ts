@@ -1,4 +1,4 @@
-export type RainClassroomPlatformId =
+type RainClassroomPlatformId =
   | 'rain-classroom'
   | 'changjiang-rain-classroom'
   | 'hotang-rain-classroom'
@@ -84,8 +84,6 @@ const normalizeHost = (value: string) => {
   }
 };
 
-export const listRainClassroomPlatforms = () => [...platformDefinitions];
-
 export const normalizeRainClassroomPlatformId = (value: string | null | undefined): RainClassroomPlatformId => {
   const normalized = value?.trim();
   if (normalized && normalized in legacyPlatformAliases) {
@@ -125,18 +123,6 @@ export const resolveRainClassroomPlatformByUrl = (url: string | null | undefined
     return null;
   }
 };
-
-export const buildRainClassroomLessonUrl = (originOrHost: string | null | undefined, lessonId: string) => {
-  const platform = resolveRainClassroomPlatformByOrigin(originOrHost) ?? getRainClassroomPlatform('rain-classroom');
-  return `${platform.originUrl}/lesson/fullscreen/v3/${lessonId}`;
-};
-
-export const buildRainClassroomExerciseUrl = (
-  originOrHost: string | null | undefined,
-  lessonId: string,
-  exerciseIndex: string,
-  kind: 'exercise' | 'subjective'
-) => `${buildRainClassroomLessonUrl(originOrHost, lessonId)}/${kind}/${exerciseIndex}`;
 
 export const buildRainClassroomHomeUrl = (originOrHost: string | null | undefined) => {
   const platform = resolveRainClassroomPlatformByOrigin(originOrHost) ?? getRainClassroomPlatform('rain-classroom');

@@ -1,19 +1,5 @@
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
-export const schemaMetaTable = sqliteTable('schema_meta', {
-  key: text('key').primaryKey(),
-  value: text('value').notNull()
-});
-
-export const apiProviderConfigsTable = sqliteTable('api_provider_configs', {
-  provider: text('provider').primaryKey(),
-  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
-  apiKey: text('api_key'),
-  baseUrl: text('base_url'),
-  model: text('model'),
-  updatedAt: text('updated_at').notNull()
-});
-
 export const qwenApiKeysTable = sqliteTable('qwen_api_keys', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull(),
@@ -21,19 +7,6 @@ export const qwenApiKeysTable = sqliteTable('qwen_api_keys', {
   isActive: integer('is_active', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull()
-});
-
-export const sessionsTable = sqliteTable('sessions', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  source: text('source').notNull(),
-  origin: text('origin').notNull(),
-  cookiesJson: text('cookies_json').notNull(),
-  cookieCount: integer('cookie_count').notNull(),
-  savedAt: text('saved_at').notNull(),
-  currentUrl: text('current_url'),
-  pageTitle: text('page_title'),
-  mode: text('mode'),
-  isActive: integer('is_active', { mode: 'boolean' }).notNull().default(false)
 });
 
 export const tasksTable = sqliteTable('tasks', {
@@ -142,15 +115,6 @@ export const runtimeExercisesTable = sqliteTable('runtime_exercises', {
   lastError: text('last_error')
 });
 
-export const ocrResultsTable = sqliteTable('ocr_results', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  questionRowId: integer('question_row_id').notNull(),
-  text: text('text').notNull(),
-  sourceImage: text('source_image'),
-  confidenceNote: text('confidence_note').notNull(),
-  createdAt: text('created_at').notNull()
-});
-
 export const questionCapturesTable = sqliteTable('question_captures', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   questionRowId: integer('question_row_id').notNull(),
@@ -179,25 +143,6 @@ export const visionAnalysesTable = sqliteTable('vision_analyses', {
   rawResponseJson: text('raw_response_json').notNull(),
   createdAt: text('created_at').notNull(),
   isCurrent: integer('is_current', { mode: 'boolean' }).notNull().default(true)
-});
-
-export const draftAnswersTable = sqliteTable('draft_answers', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  questionRowId: integer('question_row_id').notNull(),
-  ocrResultId: integer('ocr_result_id'),
-  draft: text('draft').notNull(),
-  reasoningSummary: text('reasoning_summary').notNull(),
-  confidence: text('confidence').notNull(),
-  generatedAt: text('generated_at').notNull(),
-  isCurrent: integer('is_current', { mode: 'boolean' }).notNull().default(true)
-});
-
-export const answerConfirmationsTable = sqliteTable('answer_confirmations', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  draftAnswerId: integer('draft_answer_id').notNull(),
-  confirmedValue: text('confirmed_value').notNull(),
-  confirmedAt: text('confirmed_at').notNull(),
-  note: text('note')
 });
 
 export const accountsTable = sqliteTable('accounts', {

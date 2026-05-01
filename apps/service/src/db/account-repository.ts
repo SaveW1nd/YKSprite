@@ -1,5 +1,5 @@
 import { and, desc, eq, like, or } from 'drizzle-orm';
-import type { BrowserCookie } from '../browser/browser-controller.js';
+import type { BrowserCookie, StoredSession } from '../browser/browser-controller.js';
 import type { DatabaseClient } from './client.js';
 import { accountsTable } from './schema.js';
 import {
@@ -11,7 +11,7 @@ import {
 
 export type ManagedAccountStatus = 'healthy' | 'error';
 
-export type ManagedAccountRecord = {
+type ManagedAccountRecord = {
   id: number;
   userId: string | null;
   name: string | null;
@@ -28,7 +28,7 @@ export type ManagedAccountRecord = {
   createdAt: string;
 };
 
-export type ListManagedAccountsInput = {
+type ListManagedAccountsInput = {
   q?: string;
   platform?: string;
   status?: ManagedAccountStatus;
@@ -39,27 +39,20 @@ export type AccountIdentity = {
   name: string | null;
 };
 
-export type StoredAccountSession = {
-  cookies: BrowserCookie[];
-  savedAt: string;
-  origin: string;
-  currentUrl: string | null;
-  pageTitle: string | null;
-  mode: string | null;
-};
+type StoredAccountSession = StoredSession;
 
-export type SaveSessionResult = {
+type SaveSessionResult = {
   accountId: number;
   refreshedExistingAccount: boolean;
 };
 
-export type MarkLoginHealthyInput = {
+type MarkLoginHealthyInput = {
   checkedAt: string;
   currentUrl?: string | null;
   mode?: string | null;
 };
 
-export type MarkAccountHealthyInput = {
+type MarkAccountHealthyInput = {
   checkedAt: string;
 };
 

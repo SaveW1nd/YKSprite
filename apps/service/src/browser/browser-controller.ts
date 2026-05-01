@@ -18,6 +18,15 @@ export type BrowserCookie = {
   sameSite?: 'Strict' | 'Lax' | 'None' | string;
 };
 
+export type StoredSession = {
+  cookies: BrowserCookie[];
+  savedAt: string;
+  origin: string;
+  currentUrl?: string | null;
+  pageTitle?: string | null;
+  mode?: string | null;
+};
+
 export type SessionState = {
   hasSession: boolean;
   savedAt: string | null;
@@ -74,7 +83,7 @@ export type ScreenshotPayload = {
   data: string;
 } | null;
 
-export type BrowserNetworkEvent = {
+type BrowserNetworkEvent = {
   url: string;
   method: string;
   resourceType: string | null;

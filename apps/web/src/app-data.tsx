@@ -23,18 +23,6 @@ export type SectionMetric = {
   hint: string;
 };
 
-export const appVersion = 'v0.1.111';
-
-export const serviceStatus: {
-  label: string;
-  tone: 'healthy' | 'error';
-  updatedAt: string;
-} = {
-  label: '控制中心在线',
-  tone: 'healthy',
-  updatedAt: '刚刚同步'
-};
-
 export const navigationItems: NavItem[] = [
   {
     id: 'dashboard',

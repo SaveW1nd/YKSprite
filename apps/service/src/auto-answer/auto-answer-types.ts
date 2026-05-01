@@ -1,4 +1,4 @@
-export type AutoAnswerRunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
+type AutoAnswerRunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 export type AutoAnswerRunRecord = {
   id: string;
@@ -14,7 +14,7 @@ export type AutoAnswerRunRecord = {
   lastError: string | null;
 };
 
-export type AutoAnswerAttemptStatus = 'pending' | 'ready' | 'running' | 'done' | 'failed' | 'submitted' | 'already_completed';
+type AutoAnswerAttemptStatus = 'pending' | 'ready' | 'running' | 'done' | 'failed' | 'submitted' | 'already_completed';
 
 export type AutoAnswerAttemptRecord = {
   id: string;
@@ -37,7 +37,7 @@ export type AutoAnswerAttemptRecord = {
   lastError: string | null;
 };
 
-export type AutoAnswerStage = 'idle' | 'collecting' | 'solving' | 'submitting';
+type AutoAnswerStage = 'idle' | 'collecting' | 'solving' | 'submitting';
 
 export type AutoAnswerStatus = {
   runId: string | null;

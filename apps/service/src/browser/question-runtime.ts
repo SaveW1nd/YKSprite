@@ -60,7 +60,7 @@ export const parseOptionalNumber = (value: unknown) => {
   return null;
 };
 
-export const parseOptionalBoolean = (value: unknown) => {
+const parseOptionalBoolean = (value: unknown) => {
   if (typeof value === 'boolean') {
     return value;
   }
@@ -87,7 +87,7 @@ export const parseOptionalBoolean = (value: unknown) => {
   return null;
 };
 
-export const normalizeOptionList = (value: unknown) => {
+const normalizeOptionList = (value: unknown) => {
   if (!Array.isArray(value)) {
     return [];
   }

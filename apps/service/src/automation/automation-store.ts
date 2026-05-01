@@ -1,4 +1,4 @@
-export type TaskType =
+type TaskType =
   | 'browser_boot'
   | 'session_attach'
   | 'question_extract'
@@ -7,7 +7,7 @@ export type TaskType =
   | 'auto_answer_solve'
   | 'auto_answer_submit';
 
-export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 export type TaskRecord = {
   id: string;

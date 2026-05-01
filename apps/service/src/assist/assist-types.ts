@@ -23,7 +23,7 @@ export type VisionAnalysis = {
   id: number;
   questionId: string;
   captureId: number;
-  provider: 'openai' | 'qwen_vl';
+  provider: 'qwen_vl';
   model: string;
   promptVersion: string;
   questionType: 'single_choice' | 'multiple_choice' | 'fill_in' | 'subjective';
@@ -39,7 +39,7 @@ export type VisionAnalysis = {
 export type VisionAnalysisRecord = {
   questionRowId: number;
   captureId: number;
-  provider: 'openai' | 'qwen_vl';
+  provider: 'qwen_vl';
   model: string;
   promptVersion: string;
   questionType: 'single_choice' | 'multiple_choice' | 'fill_in' | 'subjective';

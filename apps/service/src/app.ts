@@ -21,8 +21,7 @@ import { RainClassroomHttpLoginController } from './browser/rain-classroom-http-
 import type { AccountLoginController } from './browser/account-login-controller.js';
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseClient } from './db/client.js';
-import type { BrowserController as AccountMonitorController } from './browser/browser-controller.js';
-import type { StoredSession } from './browser/session-store.js';
+import type { BrowserController as AccountMonitorController, StoredSession } from './browser/browser-controller.js';
 import { AccountEventHub } from './routes/account-events.js';
 
 type BuildServiceAppOptions = {
@@ -38,7 +37,7 @@ type BuildServiceAppOptions = {
   }) => AccountMonitorController;
 };
 
-export type ServiceApp = FastifyInstance & {
+type ServiceApp = FastifyInstance & {
   bootstrapSavedSessionAutomation(): Promise<void>;
 };
 

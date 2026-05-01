@@ -1,23 +1,16 @@
-import { mkdirSync, existsSync, readFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { homedir } from 'node:os';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
-import { sessionsTable } from './schema.js';
-import { eq, sql } from 'drizzle-orm';
-import type { BrowserCookie } from '../browser/browser-controller.js';
 
 type DatabaseClientOptions = {
   databasePath?: string;
-  legacySessionPath?: string;
 };
 
 export type DatabaseClient = ReturnType<typeof createDatabaseClient>;
 
 const defaultDatabasePath = () =>
   process.env.VITEST ? ':memory:' : path.resolve(process.cwd(), 'data', 'yksprite.db');
-
-const defaultLegacySessionPath = () => path.join(homedir(), '.yksprite', 'session', 'cookies.json');
 
 const normalizePath = (databasePath: string) => {
   if (databasePath === ':memory:') {
@@ -30,20 +23,6 @@ const normalizePath = (databasePath: string) => {
 
 const applyMigrations = (sqlite: Database.Database) => {
   sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS schema_meta (
-      key TEXT PRIMARY KEY NOT NULL,
-      value TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS api_provider_configs (
-      provider TEXT PRIMARY KEY NOT NULL,
-      enabled INTEGER NOT NULL DEFAULT 1,
-      api_key TEXT,
-      base_url TEXT,
-      model TEXT,
-      updated_at TEXT NOT NULL
-    );
-
     CREATE TABLE IF NOT EXISTS qwen_api_keys (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -51,19 +30,6 @@ const applyMigrations = (sqlite: Database.Database) => {
       is_active INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS sessions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      source TEXT NOT NULL,
-      origin TEXT NOT NULL,
-      cookies_json TEXT NOT NULL,
-      cookie_count INTEGER NOT NULL,
-      saved_at TEXT NOT NULL,
-      current_url TEXT,
-      page_title TEXT,
-      mode TEXT,
-      is_active INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS tasks (
@@ -172,15 +138,6 @@ const applyMigrations = (sqlite: Database.Database) => {
       last_error TEXT
     );
 
-    CREATE TABLE IF NOT EXISTS ocr_results (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      question_row_id INTEGER NOT NULL,
-      text TEXT NOT NULL,
-      source_image TEXT,
-      confidence_note TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
-
     CREATE TABLE IF NOT EXISTS question_captures (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       question_row_id INTEGER NOT NULL,
@@ -209,25 +166,6 @@ const applyMigrations = (sqlite: Database.Database) => {
       raw_response_json TEXT NOT NULL,
       created_at TEXT NOT NULL,
       is_current INTEGER NOT NULL DEFAULT 1
-    );
-
-    CREATE TABLE IF NOT EXISTS draft_answers (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      question_row_id INTEGER NOT NULL,
-      ocr_result_id INTEGER,
-      draft TEXT NOT NULL,
-      reasoning_summary TEXT NOT NULL,
-      confidence TEXT NOT NULL,
-      generated_at TEXT NOT NULL,
-      is_current INTEGER NOT NULL DEFAULT 1
-    );
-
-    CREATE TABLE IF NOT EXISTS answer_confirmations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      draft_answer_id INTEGER NOT NULL,
-      confirmed_value TEXT NOT NULL,
-      confirmed_at TEXT NOT NULL,
-      note TEXT
     );
 
     CREATE TABLE IF NOT EXISTS accounts (
@@ -274,43 +212,12 @@ const applyMigrations = (sqlite: Database.Database) => {
   ensureColumn('mode', 'TEXT');
 };
 
-const importLegacySession = (
-  db: ReturnType<typeof drizzle>,
-  legacySessionPath: string,
-  sqlitePath: string
-) => {
-  const existing = db.select().from(sessionsTable).limit(1).all();
-  if (existing.length > 0 || !existsSync(legacySessionPath) || sqlitePath === ':memory:') {
-    return;
-  }
-
-  const raw = readFileSync(legacySessionPath, 'utf8');
-  const parsed = JSON.parse(raw) as { cookies: BrowserCookie[]; savedAt?: string; origin?: string };
-  if (!Array.isArray(parsed.cookies) || parsed.cookies.length === 0) {
-    return;
-  }
-
-  db.update(sessionsTable).set({ isActive: false }).run();
-  db.insert(sessionsTable).values({
-    source: 'legacy-cookie-file',
-    origin: parsed.origin ?? 'www.yuketang.cn',
-    cookiesJson: JSON.stringify(parsed.cookies),
-    cookieCount: parsed.cookies.length,
-    savedAt: parsed.savedAt ?? new Date().toISOString(),
-    currentUrl: null,
-    pageTitle: null,
-    mode: null,
-    isActive: true
-  }).run();
-};
-
 export const createDatabaseClient = (options: DatabaseClientOptions = {}) => {
   const sqlitePath = normalizePath(options.databasePath ?? defaultDatabasePath());
   const sqlite = new Database(sqlitePath);
   const db = drizzle(sqlite);
 
   applyMigrations(sqlite);
-  importLegacySession(db, options.legacySessionPath ?? defaultLegacySessionPath(), sqlitePath);
 
   return {
     sqlite,

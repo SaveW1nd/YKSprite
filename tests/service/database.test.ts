@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync, rmSync, existsSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -7,7 +7,6 @@ import { AssistRepository } from '../../apps/service/src/db/assist-repository';
 import { createDatabaseClient } from '../../apps/service/src/db/client';
 import { RuntimeRepository } from '../../apps/service/src/db/runtime-repository';
 import { questionsTable } from '../../apps/service/src/db/schema';
-import { SessionRepository } from '../../apps/service/src/db/session-repository';
 import { TaskRepository } from '../../apps/service/src/db/task-repository';
 
 const cleanupPaths: string[] = [];
@@ -28,46 +27,6 @@ describe('database client', () => {
     client.close();
 
     expect(existsSync(databasePath)).toBe(true);
-  });
-
-  it('imports a legacy cookies file into the sessions table', () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'yksprite-db-'));
-    cleanupPaths.push(root);
-
-    const legacySessionPath = path.join(root, 'legacy', 'cookies.json');
-    const databasePath = path.join(root, 'data', 'yksprite.db');
-    mkdirSync(path.dirname(legacySessionPath), { recursive: true });
-    writeFileSync(
-      legacySessionPath,
-      JSON.stringify({
-        cookies: [
-          {
-            name: 'sessionid',
-            value: 'legacy-cookie',
-            domain: '.yuketang.cn',
-            path: '/',
-            expires: -1,
-            httpOnly: true,
-            secure: true,
-            sameSite: 'Lax'
-          }
-        ],
-        savedAt: '2026-04-14T00:00:00.000Z',
-        origin: 'www.yuketang.cn'
-      }),
-      'utf8'
-    );
-
-    const client = createDatabaseClient({ databasePath, legacySessionPath });
-    const repository = new SessionRepository(client);
-    const active = repository.getActive();
-    client.close();
-
-    expect(active).toMatchObject({
-      origin: 'www.yuketang.cn',
-      savedAt: '2026-04-14T00:00:00.000Z'
-    });
-    expect(active?.cookies).toHaveLength(1);
   });
 
   it('lists later events first when timestamps are identical', () => {
@@ -169,8 +128,8 @@ describe('database client', () => {
     repository.saveVisionAnalysis({
       questionRowId: 1,
       captureId,
-      provider: 'openai',
-      model: 'gpt-4.1-mini',
+      provider: 'qwen_vl',
+      model: 'qwen3-vl-flash-2026-01-22',
       promptVersion: 'single_choice.v1',
       questionType: 'single_choice',
       questionText: '函数 f(x) 的导数是？',
@@ -186,7 +145,7 @@ describe('database client', () => {
       mimeType: 'image/png'
     });
     expect(repository.getCurrentAnalysisByQuestionId('q-1')).toMatchObject({
-      provider: 'openai',
+      provider: 'qwen_vl',
       suggestedAnswer: 'A'
     });
 
