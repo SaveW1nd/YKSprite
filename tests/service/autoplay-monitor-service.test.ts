@@ -444,4 +444,87 @@ describe('AutoplayMonitorService', () => {
       })
     );
   });
+
+  it('keeps every distinct question when multiple pushed events arrive back-to-back', async () => {
+    vi.useFakeTimers();
+    let onQuestionEvent: ((event: any) => Promise<void>) | null = null;
+    let autoAnswerStatus: 'idle' | 'running' = 'idle';
+    const autoAnswerService = {
+      getStatus: vi.fn(() => ({ status: autoAnswerStatus })),
+      start: vi.fn(async (input: any) => {
+        autoAnswerStatus = 'running';
+        return { runId: `run-${input.preferredQuestion.problemId}` };
+      })
+    };
+    const browserController = {
+      ...createBrowserController(
+        vi.fn().mockResolvedValue([
+          {
+            id: 'lesson-1',
+            classroomId: 'classroom-1',
+            courseTitle: '高等数学',
+            lessonTitle: '第一讲',
+            lessonState: 'in_class',
+            href: 'https://www.yuketang.cn/lesson/fullscreen/v3/lesson-1'
+          }
+        ])
+      ),
+      startQuestionDetection: vi.fn(async (handler: (event: any) => Promise<void>) => {
+        onQuestionEvent = handler;
+      })
+    } as unknown as BrowserController;
+    const service = new AutoplayMonitorService({
+      autoAnswerService: autoAnswerService as any,
+      browserController,
+      intervalMs: 100
+    });
+    const createQuestionEvent = (problemId: string, pageIndex: number) => ({
+      lessonId: 'lesson-1',
+      problemId,
+      problemType: 1,
+      exerciseIndex: null,
+      routePath: `/lesson/fullscreen/v3/lesson-1/exercise/${pageIndex}`,
+      isComplete: false,
+      imageUrl: null,
+      detectedAt: `2026-04-20T06:00:0${pageIndex}.000Z`,
+      pageIndex,
+      presentationId: 'presentation-1',
+      source: 'wsapp-unlockproblem'
+    });
+
+    await service.start();
+    await onQuestionEvent?.(createQuestionEvent('problem-20', 20));
+    await onQuestionEvent?.(createQuestionEvent('problem-21', 21));
+    await onQuestionEvent?.(createQuestionEvent('problem-22', 22));
+
+    expect(autoAnswerService.start).toHaveBeenCalledTimes(1);
+    expect(autoAnswerService.start).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        preferredQuestion: expect.objectContaining({ problemId: 'problem-20' })
+      })
+    );
+
+    autoAnswerStatus = 'idle';
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(autoAnswerService.start).toHaveBeenCalledTimes(2);
+    expect(autoAnswerService.start).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        preferredQuestion: expect.objectContaining({ problemId: 'problem-21' })
+      })
+    );
+
+    autoAnswerStatus = 'idle';
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(autoAnswerService.start).toHaveBeenCalledTimes(3);
+    expect(autoAnswerService.start).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        preferredQuestion: expect.objectContaining({ problemId: 'problem-22' })
+      })
+    );
+  });
 });
