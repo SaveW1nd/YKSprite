@@ -479,6 +479,18 @@ export class AccountRepository {
       .run();
   }
 
+  markAccountCheckError(accountId: number, input: { reason: string; checkedAt: string }) {
+    this.database.db
+      .update(accountsTable)
+      .set({
+        status: 'error',
+        lastErrorReason: input.reason,
+        lastCheckedAt: input.checkedAt
+      })
+      .where(eq(accountsTable.id, accountId))
+      .run();
+  }
+
   markAccountHealthy(accountId: number, input: MarkAccountHealthyInput) {
     this.database.db
       .update(accountsTable)

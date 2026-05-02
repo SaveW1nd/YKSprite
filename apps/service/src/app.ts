@@ -24,6 +24,7 @@ import type { FastifyInstance } from 'fastify';
 import type { DatabaseClient } from './db/client.js';
 import type { BrowserController as AccountMonitorController, StoredSession } from './browser/browser-controller.js';
 import { AccountEventHub } from './routes/account-events.js';
+import { AccountSessionHeartbeatService } from './monitors/account-session-heartbeat-service.js';
 
 type BuildServiceAppOptions = {
   databaseClient?: DatabaseClient;
@@ -31,6 +32,7 @@ type BuildServiceAppOptions = {
   visionAnalysisService?: VisionAnalysisServiceLike;
   debugTraceStore?: AutoplayDebugTraceStore;
   apiConfigValidationFetch?: (input: string, init?: RequestInit) => Promise<Response>;
+  accountSessionHeartbeatFetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
   accountMonitorControllerFactory?: (input: {
     accountId: number;
     activeLessonEnterDelayMs: number;
@@ -65,6 +67,16 @@ export const buildServiceApp = (options: BuildServiceAppOptions = {}) => {
     });
   });
   const questionSolveService = new QuestionSolveService(assistRepository, visionAnalysisService);
+  const accountSessionHeartbeatService = new AccountSessionHeartbeatService({
+    accountRepository,
+    fetchFn: options.accountSessionHeartbeatFetch,
+    onAccountChecked: (accountId) => {
+      accountEventHub.publish({
+        type: 'accounts_changed',
+        accountId
+      });
+    }
+  });
   let accountMonitorManager: AccountMonitorManager;
   const defaultAccountLoginController = new RainClassroomHttpLoginController({
     accountRepository,
@@ -116,11 +128,13 @@ export const buildServiceApp = (options: BuildServiceAppOptions = {}) => {
   const serviceApp = Object.assign(app, {
     async bootstrapSavedSessionAutomation() {
       await accountMonitorManager.bootstrap();
+      accountSessionHeartbeatService.start();
     }
   }) as ServiceApp;
 
   serviceApp.addHook('onClose', async () => {
     await accountMonitorManager.stopAll();
+    await accountSessionHeartbeatService.stop();
     await accountLoginController.stop().catch(() => undefined);
     databaseClient.close();
   });
