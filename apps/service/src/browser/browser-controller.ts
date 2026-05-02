@@ -133,6 +133,7 @@ export type DetectedQuestionEvent = {
   detectedAt: string;
   presentationId?: string | null;
   pageIndex?: number | null;
+  remainingHint?: string | null;
   source?: 'runtime-state' | 'curr-slide-event' | 'presentation-slide' | 'wsapp-unlockproblem';
 };
 

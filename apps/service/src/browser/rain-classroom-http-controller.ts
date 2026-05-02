@@ -37,6 +37,8 @@ type TimelineProblemEvent = {
   pres?: string;
   prob?: string;
   si?: number | string;
+  dt?: number | string;
+  limit?: number | string;
 };
 
 type TimelinePayload = {
@@ -62,6 +64,17 @@ const safeJson = async (response: Response) => response.json().catch(() => null)
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const isUnauthenticatedPayload = (payload: unknown) =>
+  isObject(payload) &&
+  (payload.code === 50000 || payload.code === 401) &&
+  String(payload.msg ?? payload.message ?? '').toUpperCase() === 'UNAUTHENTICATED';
+
+const assertAuthenticatedResponse = (response: Response, payload: unknown) => {
+  if (response.status === 401 || isUnauthenticatedPayload(payload)) {
+    throw new Error('会话失效，需重新登录');
+  }
+};
+
 const normalizeEnterDelayMs = (value: number | undefined) =>
   typeof value === 'number' && Number.isFinite(value) ? Math.min(300_000, Math.max(0, Math.floor(value))) : 0;
 
@@ -78,6 +91,41 @@ const findLatestProblemEvent = (timeline: unknown[]) =>
   [...timeline]
     .reverse()
     .find((event): event is TimelineProblemEvent => isObject(event) && event.type === 'problem' && Boolean(event.pres || event.prob)) ?? null;
+
+const getTimelineProblemEvents = (timeline: unknown[]) =>
+  timeline.filter((event): event is TimelineProblemEvent => isObject(event) && event.type === 'problem' && Boolean(event.pres || event.prob));
+
+const findProblemEventByProblemId = (timeline: unknown[], problemId: string) =>
+  [...timeline]
+    .reverse()
+    .find((event): event is TimelineProblemEvent => isObject(event) && event.type === 'problem' && parseOptionalString(event.prob) === problemId) ?? null;
+
+const formatRemainingHint = (event: TimelineProblemEvent | null) => {
+  const limitSeconds = parseOptionalNumber(event?.limit);
+  if (limitSeconds === null) {
+    return null;
+  }
+  if (limitSeconds < 0) {
+    return '不限时';
+  }
+
+  const publishedAtMs = parseOptionalNumber(event?.dt);
+  if (publishedAtMs === null) {
+    return `${limitSeconds}秒`;
+  }
+
+  const remainingSeconds = Math.ceil((publishedAtMs + limitSeconds * 1000 - Date.now()) / 1000);
+  if (remainingSeconds <= 0) {
+    return '已截止';
+  }
+  if (remainingSeconds < 60) {
+    return `剩余 ${remainingSeconds} 秒`;
+  }
+
+  const minutes = Math.floor(remainingSeconds / 60);
+  const seconds = remainingSeconds % 60;
+  return seconds > 0 ? `剩余 ${minutes} 分 ${seconds} 秒` : `剩余 ${minutes} 分`;
+};
 
 const normalizeLessonDisplayTitle = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : null);
 
@@ -105,6 +153,7 @@ export class RainClassroomHttpController implements BrowserController {
   private questionDetectionEnabled = false;
   private onQuestionDetected: ((event: DetectedQuestionEvent) => void | Promise<void>) | null = null;
   private lastDetectedQuestionKey: string | null = null;
+  private readonly emittedQuestionKeys = new Set<string>();
   private classroomDetectionEnabled = false;
   private onClassroomDetected: ((event: DetectedClassroomEvent) => void | Promise<void>) | null = null;
   private detectedClassroomLessonId: string | null = null;
@@ -159,7 +208,7 @@ export class RainClassroomHttpController implements BrowserController {
         pageUrl: homeUrl,
         lastError: null
       };
-      await this.discoverLessons().catch(() => []);
+      await this.discoverLessons();
     } catch (error) {
       this.status = {
         status: 'error',
@@ -270,6 +319,7 @@ export class RainClassroomHttpController implements BrowserController {
       if (!runtimeState) {
         return [];
       }
+      const timelineEvent = findProblemEventByProblemId(this.currentTimeline, runtimeState.problemId);
       return [
         {
           entryId: `presentation-${runtimeState.exerciseIndex}`,
@@ -279,7 +329,7 @@ export class RainClassroomHttpController implements BrowserController {
             this.currentSlideIndex !== null &&
             (this.currentSlideIndex === runtimeState.pageIndex || String(this.currentSlideIndex) === runtimeState.exerciseIndex),
           pageHint: runtimeState.pageIndex !== null ? `第${runtimeState.pageIndex}页` : null,
-          remainingHint: null,
+          remainingHint: formatRemainingHint(timelineEvent),
           thumbnailUrl: runtimeState.imageThumbnailUrl,
           exerciseUrl: `${this.resolveOriginUrl()}${runtimeState.routePath}`,
           runtimeState
@@ -404,7 +454,7 @@ export class RainClassroomHttpController implements BrowserController {
     }
     this.currentCourseTitle = activeLesson.courseTitle;
     await this.prepareLesson(activeLesson.id);
-    await this.dispatchCurrentQuestion();
+    await this.dispatchTimelineQuestions();
     await this.startQuestionSocket(activeLesson.id);
   }
 
@@ -412,6 +462,7 @@ export class RainClassroomHttpController implements BrowserController {
     this.questionDetectionEnabled = false;
     this.onQuestionDetected = null;
     this.lastDetectedQuestionKey = null;
+    this.emittedQuestionKeys.clear();
     this.stopQuestionSocket();
   }
 
@@ -450,6 +501,10 @@ export class RainClassroomHttpController implements BrowserController {
     });
     if (!checkin.authorization) {
       throw new Error('Lesson checkin did not return set-auth');
+    }
+    if (this.currentLessonId !== lessonId) {
+      this.lastDetectedQuestionKey = null;
+      this.emittedQuestionKeys.clear();
     }
     this.currentLessonId = lessonId;
     this.status = {
@@ -566,20 +621,35 @@ export class RainClassroomHttpController implements BrowserController {
     if (payload.op === 'hello') {
       this.applyTimelinePayload(payload);
       fetchTimeline();
-      await this.dispatchCurrentQuestion();
+      await this.dispatchTimelineQuestions();
       return;
     }
     if (payload.op === 'fetchtimeline') {
       this.applyTimelinePayload(payload);
-      await this.dispatchCurrentQuestion();
+      await this.dispatchTimelineQuestions();
       return;
     }
     const record = payload as Record<string, unknown>;
     if (record.op === 'unlockproblem') {
       const problem = isObject(record.problem) ? record.problem : null;
-      this.currentPresentationId = parseOptionalString(problem?.pres) ?? this.currentPresentationId;
-      this.currentSlideIndex = parseOptionalNumber(problem?.si) ?? this.currentSlideIndex;
-      await this.dispatchPresentationQuestion(lessonId, parseOptionalString(problem?.prob), parseOptionalString(problem?.pres), parseOptionalNumber(problem?.si), 'wsapp-unlockproblem');
+      const problemEvent: TimelineProblemEvent = {
+        type: 'problem',
+        prob: parseOptionalString(problem?.prob) ?? parseOptionalString(record.prob) ?? undefined,
+        pres: parseOptionalString(problem?.pres) ?? parseOptionalString(record.pres) ?? undefined,
+        si: parseOptionalNumber(problem?.si) ?? parseOptionalNumber(record.si) ?? undefined,
+        dt: parseOptionalNumber(problem?.dt) ?? parseOptionalNumber(record.dt) ?? undefined,
+        limit: parseOptionalNumber(problem?.limit) ?? parseOptionalNumber(record.limit) ?? undefined
+      };
+      this.currentPresentationId = parseOptionalString(problemEvent.pres) ?? this.currentPresentationId;
+      this.currentSlideIndex = parseOptionalNumber(problemEvent.si) ?? this.currentSlideIndex;
+      await this.dispatchPresentationQuestion(
+        lessonId,
+        parseOptionalString(problemEvent.prob),
+        parseOptionalString(problemEvent.pres),
+        parseOptionalNumber(problemEvent.si),
+        'wsapp-unlockproblem',
+        problemEvent
+      );
       return;
     }
     if (record.op === 'lessonfinished') {
@@ -613,8 +683,45 @@ export class RainClassroomHttpController implements BrowserController {
       parseOptionalString(latestProblem.prob),
       parseOptionalString(latestProblem.pres),
       parseOptionalNumber(latestProblem.si),
-      'presentation-slide'
+      'presentation-slide',
+      latestProblem
     );
+  }
+
+  private async dispatchTimelineQuestions() {
+    if (!this.currentLessonId) {
+      return;
+    }
+
+    const problemEvents = getTimelineProblemEvents(this.currentTimeline);
+    if (!problemEvents.length) {
+      await this.dispatchCurrentQuestion();
+      return;
+    }
+
+    const dispatchedKeys = new Set<string>();
+    for (const problemEvent of problemEvents) {
+      const problemId = parseOptionalString(problemEvent.prob);
+      const presentationId = parseOptionalString(problemEvent.pres) ?? this.currentPresentationId;
+      if (!problemId || !presentationId) {
+        continue;
+      }
+
+      const eventKey = `${presentationId}:${problemId}`;
+      if (dispatchedKeys.has(eventKey)) {
+        continue;
+      }
+      dispatchedKeys.add(eventKey);
+
+      await this.dispatchPresentationQuestion(
+        this.currentLessonId,
+        problemId,
+        presentationId,
+        parseOptionalNumber(problemEvent.si),
+        'presentation-slide',
+        problemEvent
+      );
+    }
   }
 
   private async dispatchPresentationQuestion(
@@ -622,7 +729,8 @@ export class RainClassroomHttpController implements BrowserController {
     problemId: string | null,
     presentationId: string | null,
     pageIndex: number | null,
-    source: 'presentation-slide' | 'wsapp-unlockproblem'
+    source: 'presentation-slide' | 'wsapp-unlockproblem',
+    timelineEvent: TimelineProblemEvent | null = null
   ) {
     if (!problemId || !presentationId) {
       return;
@@ -636,7 +744,8 @@ export class RainClassroomHttpController implements BrowserController {
       source,
       courseTitle: this.currentCourseTitle,
       pageIndex: pageIndex ?? runtimeState?.pageIndex ?? null,
-      presentationId
+      presentationId,
+      remainingHint: formatRemainingHint(timelineEvent)
     }));
   }
 
@@ -645,10 +754,11 @@ export class RainClassroomHttpController implements BrowserController {
       return;
     }
     const eventKey = `${event.lessonId}:${event.problemId}`;
-    if (this.lastDetectedQuestionKey === eventKey) {
+    if (this.lastDetectedQuestionKey === eventKey || this.emittedQuestionKeys.has(eventKey)) {
       return;
     }
     this.lastDetectedQuestionKey = eventKey;
+    this.emittedQuestionKeys.add(eventKey);
     await this.onQuestionDetected(event);
     this.traceStore?.record('question_resolved', 'Question runtime data resolved', {
       lessonId: event.lessonId,
@@ -657,6 +767,7 @@ export class RainClassroomHttpController implements BrowserController {
       exerciseIndex: event.exerciseIndex,
       pageIndex: event.pageIndex,
       presentationId: event.presentationId,
+      remainingHint: event.remainingHint,
       source: event.source
     });
   }
@@ -697,7 +808,7 @@ export class RainClassroomHttpController implements BrowserController {
       this.currentCourseTitle = activeLesson.courseTitle;
       if (this.questionDetectionEnabled) {
         await this.prepareLesson(activeLesson.id);
-        await this.dispatchCurrentQuestion();
+        await this.dispatchTimelineQuestions();
         await this.startQuestionSocket(activeLesson.id);
       }
       await this.dispatchDetectedClassroomEvent({
@@ -800,7 +911,9 @@ export class RainClassroomHttpController implements BrowserController {
       },
       body: input.body ? JSON.stringify(input.body) : undefined
     });
-    return safeJson(response);
+    const payload = await safeJson(response);
+    assertAuthenticatedResponse(response, payload);
+    return payload;
   }
 
   private async getActiveSession() {

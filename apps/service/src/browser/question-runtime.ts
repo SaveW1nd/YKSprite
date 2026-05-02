@@ -20,6 +20,7 @@ export const buildDetectedQuestionEvent = (
     courseTitle?: string | null;
     pageIndex?: number | null;
     presentationId?: string | null;
+    remainingHint?: string | null;
   }
 ): DetectedQuestionEvent | null => {
   if (
@@ -43,6 +44,7 @@ export const buildDetectedQuestionEvent = (
     detectedAt: new Date().toISOString(),
     presentationId: input?.presentationId ?? null,
     pageIndex: input?.pageIndex ?? runtimeState.pageIndex ?? null,
+    remainingHint: input?.remainingHint ?? null,
     source: input?.source ?? 'runtime-state'
   };
 };

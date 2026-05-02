@@ -73,7 +73,6 @@ YKSprite
 ├── packages
 │   └── core          # 共享的题目、答案解析和 prompt 工具
 ├── docker            # Dockerfile 与 docker-compose 配置
-├── tests             # 服务端和核心逻辑测试
 └── data              # 本地运行数据，已被 Git 忽略
 ```
 
@@ -174,7 +173,6 @@ Vite 会把 `/api/*` 请求代理到 `http://127.0.0.1:3000`。
 
 ```bash
 pnpm lint
-pnpm test
 pnpm build
 ```
 
@@ -222,7 +220,6 @@ YKSprite 会在本地保存运行数据，其中可能包含账号 session、coo
 - Drizzle ORM
 - Docker
 - Electron
-- Vitest
 
 ## 路线图
 
@@ -251,7 +248,6 @@ YKSprite 会在本地保存运行数据，其中可能包含账号 session、coo
 
 ```bash
 pnpm lint
-pnpm test
 pnpm build
 ```
 

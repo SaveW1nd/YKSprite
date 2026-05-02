@@ -7,7 +7,6 @@
     "start:service": "node apps/service/dist/index.js",
     "watch:autoplay-debug": "node scripts/watch-autoplay-debug.mjs",
     "lint": "pnpm -r --if-present lint",
-    "test": "vitest run",
     "build": "pnpm -r --if-present build",
     "package:desktop": "pnpm --filter @yksprite/desktop --fail-if-no-match package",
     "docker:build": "docker build -f docker/Dockerfile -t yksprite:dev .",
@@ -21,9 +20,6 @@
     ]
   },
   "devDependencies": {
-    "@yksprite/core": "workspace:*",
-    "jsdom": "^26.1.0",
-    "typescript": "^5.8.3",
-    "vitest": "^3.1.2"
+    "typescript": "^5.8.3"
   }
 }
