@@ -257,7 +257,7 @@ pnpm build
 
 ## 版本控制
 
-本项目使用 Git 进行版本管理。你可以在仓库的 Releases 页面查看可用版本。
+当前版本记录在根目录 [VERSION](./VERSION) 中，并与各 workspace package 的 `version` 字段保持一致。你也可以在仓库的 Releases 页面查看可用版本。
 
 ## 作者
 
